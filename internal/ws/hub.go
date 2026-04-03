@@ -42,9 +42,9 @@ func (h *Hub) Unregister(deviceID string) {
 
 func (h *Hub) Send(ctx context.Context, deviceID string, msg []byte) error {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-
 	c, ok := h.clients[deviceID]
+	h.mu.RUnlock()
+
 	if !ok {
 		return fmt.Errorf("hub: device %s not connected", deviceID)
 	}
