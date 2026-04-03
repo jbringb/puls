@@ -2,13 +2,11 @@ package server
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
 
 	"github.com/jbringb/puls/internal/model"
-	"github.com/jbringb/puls/internal/store"
 	ws "github.com/jbringb/puls/internal/ws"
 )
 
@@ -27,20 +25,23 @@ func (s *Server) handleRequestDiagnostics(w http.ResponseWriter, r *http.Request
 
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
-	_ = dec.Decode(&body)
+	if err := dec.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
 
-	if body.Scope == "" {
-		body.Scope = model.ScopeFull
+	switch body.Scope {
+	case model.ScopeFull, model.ScopeNetwork, model.ScopeProcesses, model.ScopeStorage:
+		// valid
+	default:
+		writeError(w, http.StatusUnprocessableEntity, "invalid scope")
+		return
 	}
 
 	ctx := r.Context()
 	requestID := uuid.New().String()
 
 	result, err := s.store.CreateDiagnosticRequest(ctx, deviceID, requestID, body.Scope)
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "device not found")
-		return
-	}
 	if err != nil {
 		s.logger.Error("create diagnostic request", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to create diagnostic request")
