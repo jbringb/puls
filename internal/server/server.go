@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,9 @@ import (
 	"github.com/jbringb/puls/internal/store"
 	"github.com/jbringb/puls/internal/ws"
 )
+
+//go:embed openapi.json
+var openapiSpec []byte
 
 type Server struct {
 	cfg    *config.Config
@@ -57,6 +61,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/devices/{id}/diagnostics", adminAuth(http.HandlerFunc(s.handleListDiagnostics)))
 
 	mux.HandleFunc("GET /api/v1/ws", s.handleWebSocket)
+
+	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(openapiSpec)
+	})
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
