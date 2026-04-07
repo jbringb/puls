@@ -50,7 +50,7 @@ func NewClient(
 
 func (c *Client) Run(ctx context.Context) {
 	defer func() {
-		c.hub.Unregister(c.DeviceID)
+		c.hub.Unregister(c)
 		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := c.store.SetDeviceStatus(offlineCtx, c.DeviceID, model.StatusOffline); err != nil {

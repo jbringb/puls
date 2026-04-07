@@ -33,11 +33,13 @@ func (h *Hub) Register(c *Client) {
 	h.logger.Info("device connected", "device_id", c.DeviceID, "total", len(h.clients))
 }
 
-func (h *Hub) Unregister(deviceID string) {
+func (h *Hub) Unregister(c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.clients, deviceID)
-	h.logger.Info("device disconnected", "device_id", deviceID, "total", len(h.clients))
+	if h.clients[c.DeviceID] == c {
+		delete(h.clients, c.DeviceID)
+		h.logger.Info("device disconnected", "device_id", c.DeviceID, "total", len(h.clients))
+	}
 }
 
 func (h *Hub) Send(ctx context.Context, deviceID string, msg []byte) error {
