@@ -260,6 +260,30 @@
         }
       }
     },
+    "/api/v1/events": {
+      "get": {
+        "operationId": "streamEvents",
+        "summary": "SSE stream of device connect, disconnect, and heartbeat events",
+        "security": [{ "adminAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "text/event-stream - each event is `data: {json}\\n\\n`",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "type":    { "type": "string", "enum": ["device.connected", "device.disconnected", "device.heartbeat"] },
+                    "payload": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
     "/api/v1/ws": {
       "get": {
         "operationId": "connectWebSocket",
