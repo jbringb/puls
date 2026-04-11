@@ -58,8 +58,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.SetDeviceStatus(ctx, deviceID, model.StatusOnline); err != nil {
 		s.logger.Warn("set device online", "device_id", deviceID, "err", err)
 	}
+	s.broadcaster.Publish(Event{Type: "device.connected", Payload: map[string]string{"id": deviceID}})
 
 	client.Run(ctx)
+
+	s.broadcaster.Publish(Event{Type: "device.disconnected", Payload: map[string]string{"id": deviceID}})
 }
 
 func (s *Server) handleWSMessage(ctx context.Context, c *ws.Client, env ws.Envelope) error {
@@ -97,6 +100,13 @@ func (s *Server) handleHeartbeat(ctx context.Context, c *ws.Client, env ws.Envel
 	if err := s.store.UpdateLastSeen(ctx, c.DeviceID); err != nil {
 		s.logger.Warn("update last seen", "device_id", c.DeviceID, "err", err)
 	}
+
+	s.broadcaster.Publish(Event{Type: "device.heartbeat", Payload: map[string]any{
+		"id":            c.DeviceID,
+		"cpuPercent":    data.CPUPercent,
+		"memoryPercent": data.MemoryPercent,
+		"diskPercent":   data.DiskPercent,
+	}})
 
 	s.logger.Debug("heartbeat received",
 		"device_id", c.DeviceID,

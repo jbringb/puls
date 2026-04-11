@@ -17,21 +17,23 @@ import (
 var openapiSpec []byte
 
 type Server struct {
-	cfg    *config.Config
-	store  store.Store
-	hub    *ws.Hub
-	jwtMgr *auth.Manager
-	logger *slog.Logger
-	http   *http.Server
+	cfg         *config.Config
+	store       store.Store
+	hub         *ws.Hub
+	jwtMgr      *auth.Manager
+	logger      *slog.Logger
+	http        *http.Server
+	broadcaster *Broadcaster
 }
 
 func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, logger *slog.Logger) *Server {
 	s := &Server{
-		cfg:    cfg,
-		store:  st,
-		hub:    hub,
-		jwtMgr: jwtMgr,
-		logger: logger,
+		cfg:         cfg,
+		store:       st,
+		hub:         hub,
+		jwtMgr:      jwtMgr,
+		logger:      logger,
+		broadcaster: NewBroadcaster(),
 	}
 
 	mux := http.NewServeMux()
@@ -52,6 +54,7 @@ func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	adminAuth := requireAuth(s.jwtMgr, auth.RoleAdmin)
 
+	mux.HandleFunc("POST /api/v1/auth/admin-token", s.handleAdminToken)
 	mux.HandleFunc("POST /api/v1/devices/register", s.handleRegister)
 
 	mux.Handle("GET /api/v1/devices", adminAuth(http.HandlerFunc(s.handleListDevices)))
@@ -61,6 +64,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/devices/{id}/diagnostics", adminAuth(http.HandlerFunc(s.handleListDiagnostics)))
 
 	mux.HandleFunc("GET /api/v1/ws", s.handleWebSocket)
+	mux.Handle("GET /api/v1/events", adminAuth(http.HandlerFunc(s.handleEvents)))
 
 	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

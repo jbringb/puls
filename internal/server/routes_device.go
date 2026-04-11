@@ -10,6 +10,26 @@ import (
 	"github.com/jbringb/puls/internal/store"
 )
 
+func (s *Server) handleAdminToken(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Secret == "" {
+		writeError(w, http.StatusBadRequest, "secret required")
+		return
+	}
+	if body.Secret != s.cfg.JWTSecret {
+		writeError(w, http.StatusUnauthorized, "invalid secret")
+		return
+	}
+	token, err := s.jwtMgr.IssueAdminToken("admin", s.cfg.AdminTokenExpiry)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to issue token")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+}
+
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req model.RegisterRequest
 	dec := json.NewDecoder(r.Body)
