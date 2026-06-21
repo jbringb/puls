@@ -39,6 +39,36 @@ func createDevice(t *testing.T, st *SQLite) *model.Device {
 	return d
 }
 
+func TestMigrationsSetUserVersion(t *testing.T) {
+	st := newTestStore(t)
+	var v int
+	if err := st.db.QueryRow("PRAGMA user_version").Scan(&v); err != nil {
+		t.Fatalf("read user_version: %v", err)
+	}
+	if v != len(migrations) {
+		t.Fatalf("user_version = %d, want %d", v, len(migrations))
+	}
+}
+
+func TestMigrationsIdempotent(t *testing.T) {
+	st := newTestStore(t)
+	// Re-running against an already-migrated DB must be a clean no-op.
+	if _, err := NewSQLite(st.db); err != nil {
+		t.Fatalf("re-running NewSQLite: %v", err)
+	}
+}
+
+func TestPragmasApplied(t *testing.T) {
+	st := newTestStore(t)
+	var fk int
+	if err := st.db.QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil {
+		t.Fatalf("read foreign_keys: %v", err)
+	}
+	if fk != 1 {
+		t.Errorf("foreign_keys = %d, want 1 (on)", fk)
+	}
+}
+
 func TestCreateAndGetDevice(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

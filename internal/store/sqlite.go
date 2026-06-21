@@ -17,7 +17,16 @@ import (
 )
 
 //go:embed schema.sql
-var schema string
+var schemaV1 string
+
+// migrations are applied in ascending order; each bumps PRAGMA user_version once
+// committed. Never edit a released migration — append a new one instead.
+var migrations = []struct {
+	version int
+	stmts   string
+}{
+	{version: 1, stmts: schemaV1},
+}
 
 type rfc3339Time time.Time
 
@@ -97,10 +106,69 @@ type SQLite struct {
 }
 
 func NewSQLite(db *sql.DB) (*SQLite, error) {
-	if _, err := db.Exec(schema); err != nil {
-		return nil, fmt.Errorf("store: init schema: %w", err)
+	s := &SQLite{db: db}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := s.applyPragmas(ctx); err != nil {
+		return nil, err
 	}
-	return &SQLite{db: db}, nil
+	if err := s.migrate(ctx); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// applyPragmas configures durability and concurrency. With the pool capped at a
+// single connection (see main.go) these persist for the process lifetime.
+// journal_mode=WAL is a no-op for an in-memory database, which stays in memory.
+func (s *SQLite) applyPragmas(ctx context.Context) error {
+	pragmas := []string{
+		"PRAGMA busy_timeout = 5000",
+		"PRAGMA journal_mode = WAL",
+		"PRAGMA synchronous = NORMAL",
+		"PRAGMA foreign_keys = ON",
+	}
+	for _, p := range pragmas {
+		if _, err := s.db.ExecContext(ctx, p); err != nil {
+			return fmt.Errorf("store: %q: %w", p, err)
+		}
+	}
+	return nil
+}
+
+// migrate applies any migrations newer than the database's recorded user_version,
+// each in its own transaction. Re-running is a no-op once all are applied.
+func (s *SQLite) migrate(ctx context.Context) error {
+	var current int
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
+		return fmt.Errorf("store: read schema version: %w", err)
+	}
+
+	for _, m := range migrations {
+		if m.version <= current {
+			continue
+		}
+
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("store: begin migration %d: %w", m.version, err)
+		}
+		if _, err := tx.ExecContext(ctx, m.stmts); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("store: apply migration %d: %w", m.version, err)
+		}
+		// PRAGMA user_version cannot be parameterized; m.version is an int we control.
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", m.version)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("store: set version %d: %w", m.version, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("store: commit migration %d: %w", m.version, err)
+		}
+	}
+	return nil
 }
 
 func (s *SQLite) CreateDevice(ctx context.Context, req *model.RegisterRequest) (*model.Device, error) {

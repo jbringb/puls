@@ -38,7 +38,7 @@ internal/
   model/device.go                Shared domain types
   store/store.go                 Store interface
   store/sqlite.go                SQLite (database/sql) implementation
-  store/schema.sql               Schema (embedded)
+  store/schema.sql               Schema, embedded as migration v1
   ws/hub.go                      WebSocket connection registry
   ws/client.go                   Per-connection lifecycle
   ws/message.go                  Typed JSON message envelope
@@ -60,6 +60,8 @@ internal/
 - No global state — pass dependencies explicitly via constructors
 - All database calls take a `context.Context` with a deadline
 - Prefer table-driven tests in `_test.go` files alongside the code
+- Schema changes: append a new entry to `migrations` in `store/sqlite.go` (tracked
+  by `PRAGMA user_version`); never edit a released migration. SQLite runs in WAL mode.
 
 ### Naming
 - Exported types `PascalCase`; unexported `camelCase`
