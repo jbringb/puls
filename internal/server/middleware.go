@@ -31,6 +31,18 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// maxRequestBytes caps request bodies to blunt memory-exhaustion via oversized
+// payloads. The streaming endpoints (WS upgrade, SSE) carry no request body, so
+// applying this globally is safe.
+const maxRequestBytes = 1 << 20 // 1 MiB
+
+func maxBytesMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func recoveryMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
