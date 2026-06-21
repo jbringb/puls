@@ -1,5 +1,7 @@
 # Puls
 
+[![CI](https://github.com/jbringb/puls/actions/workflows/ci.yml/badge.svg)](https://github.com/jbringb/puls/actions/workflows/ci.yml)
+
 Device uptime and status monitoring server. Devices register with the server, maintain a persistent WebSocket connection, and send periodic heartbeats containing basic system diagnostics. The server can also query connected devices for detailed, on-demand diagnostic data.
 
 ## Getting Started
