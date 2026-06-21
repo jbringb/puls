@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,11 +15,15 @@ func (s *Server) handleAdminToken(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Secret string `json:"secret"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Secret == "" {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil || body.Secret == "" {
 		writeError(w, http.StatusBadRequest, "secret required")
 		return
 	}
-	if body.Secret != s.cfg.JWTSecret {
+	// Constant-time compare against the dedicated admin secret — never the JWT
+	// signing key, which would let an admin forge arbitrary tokens directly.
+	if subtle.ConstantTimeCompare([]byte(body.Secret), []byte(s.cfg.AdminSecret)) != 1 {
 		writeError(w, http.StatusUnauthorized, "invalid secret")
 		return
 	}

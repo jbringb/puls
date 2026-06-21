@@ -14,7 +14,8 @@ go build -o puls-server ./cmd/puls-server   # build
 go test ./...                               # run all tests
 go vet ./...                                # vet
 
-PULS_JWT_SECRET="at-least-32-characters-long" ./puls-server   # run (listens on :8080)
+# run (listens on :8080) — JWT_SECRET signs tokens; ADMIN_SECRET mints admin tokens (must differ)
+PULS_JWT_SECRET="at-least-32-characters-long" PULS_ADMIN_SECRET="separate-admin-password" ./puls-server
 ```
 
 In-memory SQLite by default (data lost on restart). Set `PULS_DB_PATH` for persistence.
@@ -80,7 +81,10 @@ internal/
 - Clients must heartbeat within 90 seconds or the connection is closed
 
 ### Security
-- JWT signing: HS256. Secret from `PULS_JWT_SECRET` (min 32 chars)
+- JWT signing: HS256. Signing key from `PULS_JWT_SECRET` (min 32 chars)
+- Admin tokens are minted by presenting `PULS_ADMIN_SECRET` (min 16 chars) — a
+  password distinct from the signing key, compared with `subtle.ConstantTimeCompare`.
+  Never authenticate against the signing key itself; that would let an admin forge tokens.
 - Device JWTs expire after 90 days; admin tokens after 24 hours
 - Registration secrets hashed with bcrypt (cost 12) before storage
 - Always validate the `Origin` header on WebSocket upgrades

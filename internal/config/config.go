@@ -15,7 +15,8 @@ type Config struct {
 	// Use ":memory:" (default) for an in-memory database or a file path for persistence.
 	DBPath string // PULS_DB_PATH, default ":memory:"
 
-	JWTSecret         string        // PULS_JWT_SECRET
+	JWTSecret         string        // PULS_JWT_SECRET   — HMAC signing key for tokens
+	AdminSecret       string        // PULS_ADMIN_SECRET — password presented to mint an admin token
 	DeviceTokenExpiry time.Duration // PULS_DEVICE_TOKEN_EXPIRY, default 90d
 	AdminTokenExpiry  time.Duration // PULS_ADMIN_TOKEN_EXPIRY,  default 24h
 
@@ -32,6 +33,7 @@ func Load() (*Config, error) {
 		TLSKeyFile:  env("PULS_TLS_KEY", ""),
 		DBPath:      env("PULS_DB_PATH", ":memory:"),
 		JWTSecret:   env("PULS_JWT_SECRET", ""),
+		AdminSecret: env("PULS_ADMIN_SECRET", ""),
 		LogFormat:   env("PULS_LOG_FORMAT", "json"),
 		LogLevel:    env("PULS_LOG_LEVEL", "info"),
 	}
@@ -63,6 +65,12 @@ func Load() (*Config, error) {
 func (c *Config) validate() error {
 	if (c.TLSCertFile == "") != (c.TLSKeyFile == "") {
 		return fmt.Errorf("config: PULS_TLS_CERT and PULS_TLS_KEY must both be set or both be empty")
+	}
+	if len(c.AdminSecret) < 16 {
+		return fmt.Errorf("config: PULS_ADMIN_SECRET must be at least 16 characters")
+	}
+	if c.AdminSecret == c.JWTSecret {
+		return fmt.Errorf("config: PULS_ADMIN_SECRET must not equal PULS_JWT_SECRET")
 	}
 	return nil
 }

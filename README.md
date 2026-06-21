@@ -17,9 +17,14 @@ go build -o puls-server ./cmd/puls-server
 ### Run
 
 ```bash
-export PULS_JWT_SECRET="secret-key"
+export PULS_JWT_SECRET="at-least-32-characters-long-signing-key"
+export PULS_ADMIN_SECRET="separate-admin-password-min-16-chars"
 ./puls-server
 ```
+
+`PULS_JWT_SECRET` is the HMAC signing key for issued tokens; `PULS_ADMIN_SECRET`
+is the password presented to mint an admin token. They must differ — reusing the
+signing key as the admin password would let an admin forge arbitrary tokens.
 
 The server starts on `:8080` with an in-memory SQLite database by default. Data is lost on restart - set `PULS_DB_PATH` to a file path for persistence.
 
@@ -34,14 +39,18 @@ docker build -t puls-server .
 Run it:
 
 ```bash
-docker run -p 8080:8080 -e PULS_JWT_SECRET="your-secret-at-least-32-chars" puls-server
+docker run -p 8080:8080 \
+  -e PULS_JWT_SECRET="your-signing-key-at-least-32-chars" \
+  -e PULS_ADMIN_SECRET="your-admin-password-min-16-chars" \
+  puls-server
 ```
 
 With a persistent database:
 
 ```bash
 docker run -p 8080:8080 \
-  -e PULS_JWT_SECRET="your-secret-at-least-32-chars" \
+  -e PULS_JWT_SECRET="your-signing-key-at-least-32-chars" \
+  -e PULS_ADMIN_SECRET="your-admin-password-min-16-chars" \
   -e PULS_DB_PATH=/data/puls.db \
   -v /path/to/data:/data \
   puls-server
@@ -49,7 +58,16 @@ docker run -p 8080:8080 \
 
 ### Admin Endpoints
 
-All admin endpoints require an `Authorization: Bearer <admin-jwt>` header. Admin tokens are issued out-of-band (e.g. via `IssueAdminToken` in `internal/auth`).
+All admin endpoints require an `Authorization: Bearer <admin-jwt>` header. Obtain an
+admin token by presenting `PULS_ADMIN_SECRET` to the token endpoint:
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/admin-token \
+  -H 'Content-Type: application/json' \
+  -d '{"secret":"separate-admin-password-min-16-chars"}'
+```
+
+The response is `{"token": "<admin-jwt>"}`, valid for `PULS_ADMIN_TOKEN_EXPIRY` (default 24h).
 
 ## Dependencies
 
