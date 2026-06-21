@@ -289,8 +289,9 @@
     "/api/v1/ws": {
       "get": {
         "operationId": "connectWebSocket",
+        "summary": "Device WebSocket. Authenticate with a device JWT via (in order of preference) the Authorization: Bearer header, a Sec-WebSocket-Protocol value of 'puls.bearer, <token>', or the ?token= query param (discouraged; leaks into logs).",
         "parameters": [
-          { "name": "token", "in": "query", "required": false, "schema": { "type": "string" } }
+          { "name": "token", "in": "query", "required": false, "description": "Device JWT. Fallback only — prefer the Authorization header or puls.bearer subprotocol.", "schema": { "type": "string" } }
         ],
         "responses": {
           "101": {},

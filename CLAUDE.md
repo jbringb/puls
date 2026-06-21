@@ -79,6 +79,10 @@ internal/
 - Messages are JSON envelopes: `{"type":"...","request_id":"...","data":{...}}`
 - Message types: `heartbeat`, `diag_request`, `diag_response`, `error`
 - Clients must heartbeat within 90 seconds or the connection is closed
+- Auth on upgrade, in order of preference: `Authorization: Bearer`, the
+  `puls.bearer` subprotocol (`Sec-WebSocket-Protocol: puls.bearer, <token>`),
+  then `?token=` (fallback only — leaks into logs)
+- Browser origins restricted via `PULS_ALLOWED_ORIGINS` (default: same-origin only)
 
 ### Security
 - JWT signing: HS256. Signing key from `PULS_JWT_SECRET` (min 32 chars)

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -22,20 +23,25 @@ type Config struct {
 
 	HeartbeatTimeout time.Duration // PULS_HEARTBEAT_TIMEOUT, default 90s
 
+	// AllowedOrigins restricts browser WebSocket upgrades. Empty (default) means
+	// same-origin only; non-browser clients send no Origin and are unaffected.
+	AllowedOrigins []string // PULS_ALLOWED_ORIGINS, comma-separated
+
 	LogFormat string // PULS_LOG_FORMAT: "json" | "text", default "json"
 	LogLevel  string // PULS_LOG_LEVEL:  "debug" | "info" | "warn" | "error", default "info"
 }
 
 func Load() (*Config, error) {
 	c := &Config{
-		HTTPAddr:    env("PULS_HTTP_ADDR", ":8080"),
-		TLSCertFile: env("PULS_TLS_CERT", ""),
-		TLSKeyFile:  env("PULS_TLS_KEY", ""),
-		DBPath:      env("PULS_DB_PATH", ":memory:"),
-		JWTSecret:   env("PULS_JWT_SECRET", ""),
-		AdminSecret: env("PULS_ADMIN_SECRET", ""),
-		LogFormat:   env("PULS_LOG_FORMAT", "json"),
-		LogLevel:    env("PULS_LOG_LEVEL", "info"),
+		HTTPAddr:       env("PULS_HTTP_ADDR", ":8080"),
+		TLSCertFile:    env("PULS_TLS_CERT", ""),
+		TLSKeyFile:     env("PULS_TLS_KEY", ""),
+		DBPath:         env("PULS_DB_PATH", ":memory:"),
+		JWTSecret:      env("PULS_JWT_SECRET", ""),
+		AdminSecret:    env("PULS_ADMIN_SECRET", ""),
+		LogFormat:      env("PULS_LOG_FORMAT", "json"),
+		LogLevel:       env("PULS_LOG_LEVEL", "info"),
+		AllowedOrigins: splitAndTrim(env("PULS_ALLOWED_ORIGINS", "")),
 	}
 
 	var err error
@@ -76,6 +82,21 @@ func (c *Config) validate() error {
 }
 
 func (c *Config) TLSEnabled() bool { return c.TLSCertFile != "" }
+
+// splitAndTrim splits a comma-separated value into trimmed, non-empty entries.
+// Returns nil for an empty input.
+func splitAndTrim(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
 
 func env(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok {

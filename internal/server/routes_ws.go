@@ -13,12 +13,43 @@ import (
 	ws "github.com/jbringb/puls/internal/ws"
 )
 
-func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// WebSocket clients can't always set headers, so also accept ?token=
-	tokenStr := r.URL.Query().Get("token")
-	if tokenStr == "" {
-		tokenStr = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+// wsBearerSubprotocol is the sentinel a browser client offers alongside its
+// token: `Sec-WebSocket-Protocol: puls.bearer, <jwt>`. Only the sentinel is
+// echoed back, so the token never lands in a response header or proxy log.
+const wsBearerSubprotocol = "puls.bearer"
+
+// wsToken extracts the device token, preferring mechanisms that keep it out of
+// URLs and access logs:
+//  1. Authorization: Bearer <token>                 — non-browser clients
+//  2. Sec-WebSocket-Protocol: puls.bearer, <token>  — browsers can't set Authorization
+//  3. ?token=<token>                                — fallback; leaks into logs/history, discouraged
+func wsToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 	}
+	if tok := subprotocolToken(r); tok != "" {
+		return tok
+	}
+	return r.URL.Query().Get("token")
+}
+
+func subprotocolToken(r *http.Request) string {
+	var protocols []string
+	for _, v := range r.Header.Values("Sec-WebSocket-Protocol") {
+		for _, p := range strings.Split(v, ",") {
+			protocols = append(protocols, strings.TrimSpace(p))
+		}
+	}
+	for i, p := range protocols {
+		if p == wsBearerSubprotocol && i+1 < len(protocols) {
+			return protocols[i+1]
+		}
+	}
+	return ""
+}
+
+func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	tokenStr := wsToken(r)
 	if tokenStr == "" {
 		writeError(w, http.StatusUnauthorized, "missing token")
 		return
@@ -37,7 +68,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	deviceID := claims.Subject
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: false,
+		// Empty OriginPatterns keeps the library's same-origin default; operators
+		// can widen it via PULS_ALLOWED_ORIGINS. Subprotocols lets browsers pass
+		// the token via Sec-WebSocket-Protocol (see wsToken).
+		OriginPatterns: s.cfg.AllowedOrigins,
+		Subprotocols:   []string{wsBearerSubprotocol},
 	})
 	if err != nil {
 		s.logger.Error("websocket accept", "err", err, "device_id", deviceID)
