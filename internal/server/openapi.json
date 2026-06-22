@@ -102,6 +102,7 @@
     "/healthz": {
       "get": {
         "operationId": "healthz",
+        "summary": "Liveness probe — returns 200 as long as the process is up.",
         "responses": {
           "200": {
             "content": {
@@ -113,6 +114,42 @@
               }
             }
           }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readyz",
+        "summary": "Readiness probe — returns 200 when the database is reachable, 503 otherwise.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "status": { "type": "string" } }
+                }
+              }
+            }
+          },
+          "503": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "prometheusMetrics",
+        "summary": "Prometheus scrape endpoint — unauthenticated, rate-limited to 2 req/s per IP.",
+        "responses": {
+          "200": {
+            "description": "Prometheus text exposition format",
+            "content": {
+              "text/plain": {
+                "schema": { "type": "string" }
+              }
+            }
+          },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },

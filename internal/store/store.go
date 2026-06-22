@@ -10,6 +10,9 @@ import (
 var ErrNotFound = errors.New("store: not found")
 
 type Store interface {
+	// Ping verifies the store is reachable; used by the readiness endpoint.
+	Ping(ctx context.Context) error
+
 	CreateDevice(ctx context.Context, req *model.RegisterRequest) (*model.Device, error)
 	GetDevice(ctx context.Context, id string) (*model.Device, error)
 	ListDevices(ctx context.Context) ([]model.Device, error)

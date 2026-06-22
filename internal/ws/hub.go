@@ -53,6 +53,12 @@ func (h *Hub) Send(ctx context.Context, deviceID string, msg []byte) error {
 	return c.send(ctx, msg)
 }
 
+func (h *Hub) Count() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients)
+}
+
 func (h *Hub) IsConnected(deviceID string) bool {
 	h.mu.RLock()
 	_, ok := h.clients[deviceID]

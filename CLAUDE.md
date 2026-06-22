@@ -42,8 +42,10 @@ internal/
   ws/hub.go                      WebSocket connection registry
   ws/client.go                   Per-connection lifecycle
   ws/message.go                  Typed JSON message envelope
+  observability/metrics.go       Prometheus registry, collectors, HTTP middleware
+  observability/tracing.go       OTel TracerProvider setup (OTLP/HTTP, opt-in)
   server/server.go               HTTP server + route wiring
-  server/middleware.go           Auth, logging, recovery
+  server/middleware.go           Auth, logging, recovery, body cap
   server/broadcaster.go          Fan-out hub for server-sent events
   server/routes_device.go        Device registration, list, detail
   server/routes_ws.go            WebSocket upgrade handler
@@ -85,6 +87,17 @@ internal/
   `puls.bearer` subprotocol (`Sec-WebSocket-Protocol: puls.bearer, <token>`),
   then `?token=` (fallback only — leaks into logs)
 - Browser origins restricted via `PULS_ALLOWED_ORIGINS` (default: same-origin only)
+
+### Observability
+- Prometheus metrics at `GET /metrics` (unauthenticated, rate-limited 2 req/s per IP)
+  — custom registry in `internal/observability`; isolated from the default registry
+- `GET /healthz` — liveness (process up); `GET /readyz` — readiness (DB ping)
+- OTel tracing via `PULS_OTEL_ENDPOINT` (also `OTEL_EXPORTER_OTLP_ENDPOINT`); no-op
+  if unset so local runs require no collector. `otelhttp.NewHandler` wraps the server
+  when the endpoint is set.
+- Key metrics: `puls_http_requests_total{method,route,status}`,
+  `puls_http_request_duration_seconds{method,route}`, `puls_heartbeats_total`,
+  `puls_devices_connected` (GaugeFunc backed by `hub.Count()`)
 
 ### Security
 - JWT signing: HS256. Signing key from `PULS_JWT_SECRET` (min 32 chars)

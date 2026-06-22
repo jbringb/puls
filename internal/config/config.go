@@ -29,6 +29,11 @@ type Config struct {
 
 	LogFormat string // PULS_LOG_FORMAT: "json" | "text", default "json"
 	LogLevel  string // PULS_LOG_LEVEL:  "debug" | "info" | "warn" | "error", default "info"
+
+	// OTelEndpoint enables OTLP/HTTP tracing when set. Accepts host:port (e.g.
+	// "localhost:4318", uses HTTP) or a full URL (e.g. "https://collector:4318",
+	// scheme determines TLS). Also honoured via OTEL_EXPORTER_OTLP_ENDPOINT.
+	OTelEndpoint string // PULS_OTEL_ENDPOINT
 }
 
 func Load() (*Config, error) {
@@ -42,6 +47,7 @@ func Load() (*Config, error) {
 		LogFormat:      env("PULS_LOG_FORMAT", "json"),
 		LogLevel:       env("PULS_LOG_LEVEL", "info"),
 		AllowedOrigins: splitAndTrim(env("PULS_ALLOWED_ORIGINS", "")),
+		OTelEndpoint:   env("PULS_OTEL_ENDPOINT", env("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
 	}
 
 	var err error

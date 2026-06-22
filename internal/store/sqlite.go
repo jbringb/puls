@@ -171,6 +171,10 @@ func (s *SQLite) migrate(ctx context.Context) error {
 	return nil
 }
 
+func (s *SQLite) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
 func (s *SQLite) CreateDevice(ctx context.Context, req *model.RegisterRequest) (*model.Device, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Secret), 12)
 	if err != nil {

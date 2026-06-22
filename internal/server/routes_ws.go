@@ -131,6 +131,7 @@ func (s *Server) handleHeartbeat(ctx context.Context, c *ws.Client, env ws.Envel
 		s.logger.Error("insert heartbeat", "device_id", c.DeviceID, "err", err)
 		return err
 	}
+	s.metrics.IncHeartbeat()
 
 	if err := s.store.UpdateLastSeen(ctx, c.DeviceID); err != nil {
 		s.logger.Warn("update last seen", "device_id", c.DeviceID, "err", err)

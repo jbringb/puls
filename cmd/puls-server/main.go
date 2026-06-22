@@ -14,6 +14,7 @@ import (
 
 	"github.com/jbringb/puls/internal/auth"
 	"github.com/jbringb/puls/internal/config"
+	"github.com/jbringb/puls/internal/observability"
 	"github.com/jbringb/puls/internal/server"
 	"github.com/jbringb/puls/internal/store"
 	"github.com/jbringb/puls/internal/ws"
@@ -34,6 +35,13 @@ func run() error {
 
 	logger := buildLogger(cfg)
 
+	ctx := context.Background()
+
+	tracingShutdown, err := observability.SetupTracing(ctx, cfg.OTelEndpoint)
+	if err != nil {
+		return fmt.Errorf("setup tracing: %w", err)
+	}
+
 	db, err := sql.Open("sqlite", cfg.DBPath)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
@@ -43,7 +51,7 @@ func run() error {
 	// SQLite supports only one concurrent writer; a single connection avoids lock contention.
 	db.SetMaxOpenConns(1)
 
-	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := db.PingContext(pingCtx); err != nil {
 		return fmt.Errorf("ping db: %w", err)
@@ -61,7 +69,10 @@ func run() error {
 	}
 
 	hub := ws.NewHub(logger)
-	srv := server.New(cfg, st, hub, jwtMgr, logger)
+	srv, err := server.New(cfg, st, hub, jwtMgr, logger)
+	if err != nil {
+		return fmt.Errorf("init server: %w", err)
+	}
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -74,9 +85,12 @@ func run() error {
 		return err
 	case sig := <-quit:
 		logger.Info("signal received, shutting down", "signal", sig)
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer shutdownCancel()
-		return srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		return tracingShutdown(shutdownCtx)
 	}
 }
 

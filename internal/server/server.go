@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"github.com/jbringb/puls/internal/auth"
 	"github.com/jbringb/puls/internal/config"
+	"github.com/jbringb/puls/internal/observability"
 	"github.com/jbringb/puls/internal/store"
 	"github.com/jbringb/puls/internal/ws"
 )
@@ -23,27 +26,40 @@ type Server struct {
 	hub         *ws.Hub
 	jwtMgr      *auth.Manager
 	logger      *slog.Logger
+	metrics     *observability.Metrics
 	http        *http.Server
 	broadcaster *Broadcaster
 }
 
-func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, logger *slog.Logger) *Server {
+func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, logger *slog.Logger) (*Server, error) {
+	metrics, err := observability.NewMetrics(hub.Count)
+	if err != nil {
+		return nil, fmt.Errorf("server: init metrics: %w", err)
+	}
+
 	s := &Server{
 		cfg:         cfg,
 		store:       st,
 		hub:         hub,
 		jwtMgr:      jwtMgr,
 		logger:      logger,
+		metrics:     metrics,
 		broadcaster: NewBroadcaster(),
 	}
 
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
+	// metrics wraps the mux so r.Pattern is populated (set by ServeMux on the
+	// request pointer) before the route label is read after dispatch.
 	var handler http.Handler = mux
+	handler = metrics.Middleware(handler)
 	handler = maxBytesMiddleware(handler)
 	handler = loggingMiddleware(logger, handler)
 	handler = recoveryMiddleware(logger, handler)
+	if cfg.OTelEndpoint != "" {
+		handler = otelhttp.NewHandler(handler, "puls")
+	}
 
 	s.http = &http.Server{
 		Addr:    cfg.HTTPAddr,
@@ -57,14 +73,14 @@ func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, 
 		IdleTimeout:       120 * time.Second,
 	}
 
-	return s
+	return s, nil
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	adminAuth := requireAuth(s.jwtMgr, auth.RoleAdmin)
 
-	// The two unauthenticated endpoints are throttled per client IP: admin-token
-	// gates a brute-forceable secret and register runs bcrypt on every call.
+	// The two unauthenticated write endpoints are throttled per client IP:
+	// admin-token gates a brute-forceable secret; register runs bcrypt each call.
 	publicLimiter := newIPRateLimiter(1, 5) // ~1 req/s, burst of 5
 	mux.Handle("POST /api/v1/auth/admin-token", rateLimit(publicLimiter, http.HandlerFunc(s.handleAdminToken)))
 	mux.Handle("POST /api/v1/devices/register", rateLimit(publicLimiter, http.HandlerFunc(s.handleRegister)))
@@ -87,6 +103,23 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("GET /readyz", s.handleReadyz)
+
+	// /metrics is unauthenticated (standard for Prometheus scrape targets);
+	// a dedicated rate limiter limits scrape frequency per IP.
+	metricsLimiter := newIPRateLimiter(2, 10)
+	mux.Handle("GET /metrics", rateLimit(metricsLimiter, s.metrics.HTTPHandler()))
+}
+
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := s.store.Ping(ctx); err != nil {
+		s.logger.Warn("readyz: db ping failed", "err", err)
+		writeError(w, http.StatusServiceUnavailable, "not ready")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 func (s *Server) Start() error {

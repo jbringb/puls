@@ -53,7 +53,11 @@ func newTestServer(t *testing.T) *Server {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	hub := ws.NewHub(logger)
-	return New(cfg, st, hub, jwtMgr, logger)
+	srv, err := New(cfg, st, hub, jwtMgr, logger)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return srv
 }
 
 func TestRequireAuth(t *testing.T) {
