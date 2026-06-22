@@ -12,7 +12,11 @@ type Config struct {
 	TLSCertFile string // PULS_TLS_CERT
 	TLSKeyFile  string // PULS_TLS_KEY
 
-	// DBPath is the SQLite database path.
+	// DatabaseURL selects the Postgres backend when set (e.g. postgres://user:pass@host/db).
+	// Takes precedence over DBPath. Standard DATABASE_URL is also honoured.
+	DatabaseURL string // DATABASE_URL or PULS_DATABASE_URL
+
+	// DBPath is the SQLite database path (used when DatabaseURL is empty).
 	// Use ":memory:" (default) for an in-memory database or a file path for persistence.
 	DBPath string // PULS_DB_PATH, default ":memory:"
 
@@ -41,6 +45,7 @@ func Load() (*Config, error) {
 		HTTPAddr:       env("PULS_HTTP_ADDR", ":8080"),
 		TLSCertFile:    env("PULS_TLS_CERT", ""),
 		TLSKeyFile:     env("PULS_TLS_KEY", ""),
+		DatabaseURL:    env("DATABASE_URL", env("PULS_DATABASE_URL", "")),
 		DBPath:         env("PULS_DB_PATH", ":memory:"),
 		JWTSecret:      env("PULS_JWT_SECRET", ""),
 		AdminSecret:    env("PULS_ADMIN_SECRET", ""),

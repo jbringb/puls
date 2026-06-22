@@ -18,11 +18,13 @@ go vet ./...                                # vet
 PULS_JWT_SECRET="at-least-32-characters-long" PULS_ADMIN_SECRET="separate-admin-password" ./puls-server
 ```
 
-In-memory SQLite by default (data lost on restart). Set `PULS_DB_PATH` for persistence.
+In-memory SQLite by default (data lost on restart). Set `PULS_DB_PATH` for file-backed
+SQLite, or `DATABASE_URL` (standard Postgres URL) to use the Postgres backend instead.
 
 ## Key dependencies
 
 - `modernc.org/sqlite` — pure-Go SQLite driver (no CGO)
+- `github.com/jackc/pgx/v5` — Postgres driver (pgx/stdlib for database/sql)
 - `github.com/golang-jwt/jwt/v5` — JWT creation and validation (HS256)
 - `github.com/coder/websocket` — context-aware WebSocket library
 - `golang.org/x/crypto/bcrypt` — registration secret hashing
@@ -36,9 +38,11 @@ internal/
   config/config.go               Env-based config struct
   auth/jwt.go                    HS256 JWT issuance + validation
   model/device.go                Shared domain types
-  store/store.go                 Store interface
-  store/sqlite.go                SQLite (database/sql) implementation
-  store/schema.sql               Schema, embedded as migration v1
+  store/store.go                 Store interface + shared scan helpers
+  store/sqlite.go                SQLite implementation (PRAGMA user_version migrations)
+  store/schema.sql               SQLite schema, embedded as migration v1
+  store/postgres.go              Postgres implementation (puls_schema_version migrations)
+  store/schema_postgres.sql      Postgres schema, embedded as migration v1
   ws/hub.go                      WebSocket connection registry
   ws/client.go                   Per-connection lifecycle
   ws/message.go                  Typed JSON message envelope
@@ -62,8 +66,11 @@ internal/
 - No global state — pass dependencies explicitly via constructors
 - All database calls take a `context.Context` with a deadline
 - Prefer table-driven tests in `_test.go` files alongside the code
-- Schema changes: append a new entry to `migrations` in `store/sqlite.go` (tracked
-  by `PRAGMA user_version`); never edit a released migration. SQLite runs in WAL mode.
+- Schema changes: append a new entry to both `migrations` in `store/sqlite.go`
+  (tracked by `PRAGMA user_version`) and `pgMigrations` in `store/postgres.go`
+  (tracked by `puls_schema_version` table). Never edit a released migration.
+  SQLite runs in WAL mode. Postgres uses `TIMESTAMPTZ` and `BYTEA` for SQLite's
+  `TEXT`-timestamps and `BLOB` respectively.
 
 ### Naming
 - Exported types `PascalCase`; unexported `camelCase`

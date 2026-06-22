@@ -61,45 +61,6 @@ func (t *nullRFC3339Time) Scan(src any) error {
 	return nil
 }
 
-type nullJSON struct{ V *json.RawMessage }
-
-func (n *nullJSON) Scan(src any) error {
-	if src == nil {
-		return nil
-	}
-	var s string
-	switch v := src.(type) {
-	case string:
-		s = v
-	case []byte:
-		s = string(v)
-	default:
-		return fmt.Errorf("nullJSON: unexpected type %T", src)
-	}
-	if s == "" {
-		return nil
-	}
-	rm := json.RawMessage(s)
-	n.V = &rm
-	return nil
-}
-
-type rowScanner interface {
-	Scan(dest ...any) error
-}
-
-func collect[T any](rows *sql.Rows, fn func(rowScanner) (*T, error)) ([]T, error) {
-	defer rows.Close()
-	var out []T
-	for rows.Next() {
-		v, err := fn(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *v)
-	}
-	return out, rows.Err()
-}
 
 type SQLite struct {
 	db *sql.DB
@@ -331,13 +292,16 @@ func scanDiagnostic(s rowScanner) (*model.DiagnosticResult, error) {
 	var d model.DiagnosticResult
 	var requested rfc3339Time
 	var received nullRFC3339Time
-	var payload nullJSON
+	var payload sql.NullString
 	if err := s.Scan(&d.ID, &d.DeviceID, &d.RequestID, &d.Scope,
 		&requested, &received, &payload); err != nil {
 		return nil, fmt.Errorf("store: scan diagnostic: %w", err)
 	}
 	d.RequestedAt = time.Time(requested)
 	d.ReceivedAt = received.V
-	d.Payload = payload.V
+	if payload.Valid && payload.String != "" {
+		rm := json.RawMessage(payload.String)
+		d.Payload = &rm
+	}
 	return &d, nil
 }

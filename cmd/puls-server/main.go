@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 
 	"github.com/jbringb/puls/internal/auth"
@@ -34,7 +35,6 @@ func run() error {
 	}
 
 	logger := buildLogger(cfg)
-
 	ctx := context.Background()
 
 	tracingShutdown, err := observability.SetupTracing(ctx, cfg.OTelEndpoint)
@@ -42,25 +42,9 @@ func run() error {
 		return fmt.Errorf("setup tracing: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", cfg.DBPath)
+	st, err := initStore(ctx, cfg, logger)
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	defer db.Close()
-
-	// SQLite supports only one concurrent writer; a single connection avoids lock contention.
-	db.SetMaxOpenConns(1)
-
-	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := db.PingContext(pingCtx); err != nil {
-		return fmt.Errorf("ping db: %w", err)
-	}
-	logger.Info("database ready", "path", cfg.DBPath)
-
-	st, err := store.NewSQLite(db)
-	if err != nil {
-		return fmt.Errorf("init store: %w", err)
+		return err
 	}
 
 	jwtMgr, err := auth.NewManager(cfg.JWTSecret)
@@ -85,13 +69,48 @@ func run() error {
 		return err
 	case sig := <-quit:
 		logger.Info("signal received, shutting down", "signal", sig)
-		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 30*time.Second)
-		defer shutdownCancel()
+		shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			return err
 		}
 		return tracingShutdown(shutdownCtx)
 	}
+}
+
+func initStore(ctx context.Context, cfg *config.Config, logger *slog.Logger) (store.Store, error) {
+	if cfg.DatabaseURL != "" {
+		db, err := sql.Open("pgx", cfg.DatabaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("open postgres: %w", err)
+		}
+		db.SetMaxOpenConns(15)
+		db.SetMaxIdleConns(5)
+		db.SetConnMaxLifetime(5 * time.Minute)
+
+		pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := db.PingContext(pingCtx); err != nil {
+			return nil, fmt.Errorf("ping postgres: %w", err)
+		}
+		logger.Info("database ready", "driver", "postgres")
+		return store.NewPostgres(db)
+	}
+
+	db, err := sql.Open("sqlite", cfg.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	// SQLite supports only one concurrent writer; a single connection avoids lock contention.
+	db.SetMaxOpenConns(1)
+
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		return nil, fmt.Errorf("ping sqlite: %w", err)
+	}
+	logger.Info("database ready", "driver", "sqlite", "path", cfg.DBPath)
+	return store.NewSQLite(db)
 }
 
 func buildLogger(cfg *config.Config) *slog.Logger {
