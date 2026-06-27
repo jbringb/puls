@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: puls
+    runtime: docker
+    region: oregon
+    plan: free
+    healthCheckPath: /healthz
+    autoDeploy: false
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: puls-db
+          property: connectionString
+      # Set these manually in the Render dashboard (sync: false).
+      - key: PULS_JWT_SECRET
+        sync: false
+      - key: PULS_ADMIN_SECRET
+        sync: false
+      # Set to your Render service URL, e.g. https://puls.onrender.com
+      - key: PULS_ALLOWED_ORIGINS
+        sync: false
+      - key: PULS_LOG_FORMAT
+        value: json
+
+databases:
+  - name: puls-db
+    databaseName: puls
+    plan: free
+    region: oregon

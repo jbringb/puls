@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -21,7 +22,25 @@ import (
 	"github.com/jbringb/puls/internal/ws"
 )
 
+// version is overridden at build time via -ldflags "-X main.version=<tag>".
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		addr := os.Getenv("PULS_HTTP_ADDR")
+		if addr == "" {
+			addr = ":8080"
+		}
+		if addr[0] == ':' {
+			addr = "localhost" + addr
+		}
+		resp, err := http.Get("http://" + addr + "/healthz") //nolint:noctx
+		if err != nil || resp.StatusCode != http.StatusOK {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "puls-server: %v\n", err)
 		os.Exit(1)
@@ -35,6 +54,7 @@ func run() error {
 	}
 
 	logger := buildLogger(cfg)
+	logger.Info("starting puls-server", "version", version, "addr", cfg.HTTPAddr)
 	ctx := context.Background()
 
 	tracingShutdown, err := observability.SetupTracing(ctx, cfg.OTelEndpoint)

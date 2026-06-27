@@ -1,0 +1,48 @@
+name: Deploy · Render
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: render
+
+    steps:
+      - name: Trigger deploy
+        id: trigger
+        run: |
+          response=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+          echo "status=$response" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy to go live
+        if: ${{ secrets.RENDER_API_KEY != '' && secrets.RENDER_SERVICE_ID != '' }}
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        run: |
+          echo "Polling Render for deploy status..."
+          for i in $(seq 1 60); do
+            status=$(curl -sf \
+              -H "Authorization: Bearer $RENDER_API_KEY" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=1" \
+              | jq -r '.[0].deploy.status')
+            echo "[$i/60] status=$status"
+            case "$status" in
+              live)
+                echo "Deploy is live."
+                exit 0
+                ;;
+              build_failed|update_failed|pre_deploy_failed|canceled|deactivated)
+                echo "Deploy failed with status: $status"
+                exit 1
+                ;;
+            esac
+            sleep 15
+          done
+          echo "Timed out waiting for deploy."
+          exit 1

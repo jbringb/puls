@@ -1,4 +1,9 @@
 .git
+.github
 .cursor
 *.md
 *.ps1
+.env
+.env.*
+docker-compose.yml
+deploy/

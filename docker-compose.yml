@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: puls
+      POSTGRES_PASSWORD: puls
+      POSTGRES_DB: puls
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U puls"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  puls:
+    build: .
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://puls:puls@postgres:5432/puls
+      PULS_LOG_FORMAT: text
+    env_file:
+      - path: .env
+        required: false
+
+volumes:
+  postgres_data:
