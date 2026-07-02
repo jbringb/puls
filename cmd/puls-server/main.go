@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -27,24 +28,46 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
-		addr := os.Getenv("PULS_HTTP_ADDR")
-		if addr == "" {
-			addr = ":8080"
-		}
-		if addr[0] == ':' {
-			addr = "localhost" + addr
-		}
-		resp, err := http.Get("http://" + addr + "/healthz") //nolint:noctx
-		if err != nil || resp.StatusCode != http.StatusOK {
-			os.Exit(1)
-		}
-		os.Exit(0)
+		os.Exit(healthcheck())
 	}
 
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "puls-server: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// healthcheck probes the local /healthz endpoint for use as a container
+// HEALTHCHECK. It matches the server's scheme: HTTPS (with cert verification
+// skipped, since the cert is for the public hostname) when TLS is configured,
+// plain HTTP otherwise. Returns 0 when healthy, 1 otherwise.
+func healthcheck() int {
+	addr := os.Getenv("PULS_HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+	if addr[0] == ':' {
+		addr = "localhost" + addr
+	}
+
+	scheme := "http"
+	client := &http.Client{Timeout: 5 * time.Second}
+	if os.Getenv("PULS_TLS_CERT") != "" {
+		scheme = "https"
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // loopback probe against our own cert
+		}
+	}
+
+	resp, err := client.Get(scheme + "://" + addr + "/healthz") //nolint:noctx
+	if err != nil {
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
 }
 
 func run() error {

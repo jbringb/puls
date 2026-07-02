@@ -4,7 +4,7 @@ services:
     runtime: docker
     region: oregon
     plan: free
-    healthCheckPath: /healthz
+    healthCheckPath: /readyz
     autoDeploy: false
     envVars:
       - key: DATABASE_URL
