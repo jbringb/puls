@@ -1,0 +1,56 @@
+name: Smoke Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    env:
+      PULS_JWT_SECRET: "ci-smoke-jwt-signing-key-at-least-32-chars"
+      PULS_ADMIN_SECRET: "ci-smoke-admin-secret-1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build -o puls-server ./cmd/puls-server
+
+      - name: Start server
+        run: nohup ./puls-server > /tmp/puls-server.log 2>&1 &
+
+      - name: Wait for server to be ready
+        run: |
+          for i in $(seq 1 30); do
+            ./puls-server healthcheck && break || sleep 1
+          done
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install websockets
+
+      - name: Run smoke test
+        run: python smoke_test/smoke.py
+        env:
+          BASE_URL: http://localhost:8080
+          ADMIN_SECRET: ${{ env.PULS_ADMIN_SECRET }}
+          SKIP_COMPOSE: "1"
+
+      - name: Server logs
+        if: always()
+        run: cat /tmp/puls-server.log
