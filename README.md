@@ -58,6 +58,12 @@ docker run -p 8080:8080 \
   puls-server
 ```
 
+Or use `docker-compose.yml` to run Puls alongside a Postgres backend:
+
+```bash
+docker compose up
+```
+
 ### Admin Endpoints
 
 All admin endpoints require an `Authorization: Bearer <admin-jwt>` header. Obtain an
