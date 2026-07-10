@@ -61,7 +61,6 @@ func (t *nullRFC3339Time) Scan(src any) error {
 	return nil
 }
 
-
 type SQLite struct {
 	db *sql.DB
 }

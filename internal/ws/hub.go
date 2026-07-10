@@ -84,4 +84,3 @@ func (h *Hub) CloseAll() {
 		delete(h.clients, id)
 	}
 }
-
