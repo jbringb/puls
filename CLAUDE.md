@@ -87,7 +87,7 @@ internal/
 - Decode bodies with `json.NewDecoder` + `DisallowUnknownFields()`
 
 ### WebSocket
-- Messages are JSON envelopes: `{"type":"...","request_id":"...","data":{...}}`
+- Messages are JSON envelopes: `{"type":"...","requestId":"...","data":{...}}`
 - Message types: `heartbeat`, `diag_request`, `diag_response`, `error`
 - Clients must heartbeat within 90 seconds or the connection is closed
 - Auth on upgrade, in order of preference: `Authorization: Bearer`, the
