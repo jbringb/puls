@@ -14,9 +14,11 @@ jobs:
     steps:
       - name: Trigger deploy
         id: trigger
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
           response=$(curl -sf -o /dev/null -w "%{http_code}" \
-            -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+            -X POST "$RENDER_DEPLOY_HOOK_URL")
           echo "status=$response" >> "$GITHUB_OUTPUT"
 
       - name: Wait for deploy to go live
