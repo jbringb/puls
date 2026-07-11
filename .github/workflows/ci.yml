@@ -44,3 +44,29 @@ jobs:
         run: go test -race ./...
         env:
           TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/puls_test
+
+  build-agent:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build puls-agent (${{ matrix.goos }}/${{ matrix.goarch }})
+        run: go build -o puls-agent ./cmd/puls-agent
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+
+      - name: Vet puls-agent
+        run: go vet ./cmd/puls-agent/...

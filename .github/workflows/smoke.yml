@@ -51,6 +51,59 @@ jobs:
           ADMIN_SECRET: ${{ env.PULS_ADMIN_SECRET }}
           SKIP_COMPOSE: "1"
 
+      - name: Build puls-agent
+        run: go build -o puls-agent ./cmd/puls-agent
+
+      - name: Run puls-agent smoke check
+        run: |
+          ./puls-agent \
+            -server http://localhost:8080 \
+            -name "ci-agent-smoke-check" \
+            -secret "ci-agent-registration-secret-value" \
+            -interval 2s \
+            -state-file /tmp/puls-agent-state.json \
+            > /tmp/puls-agent.log 2>&1 &
+          echo $! > /tmp/puls-agent.pid
+
+          admin_token=$(curl -sf -X POST http://localhost:8080/api/v1/auth/admin-token \
+            -H 'Content-Type: application/json' \
+            -d "{\"secret\":\"$PULS_ADMIN_SECRET\"}" | jq -r '.token')
+
+          device_id=""
+          for i in $(seq 1 20); do
+            if [ -f /tmp/puls-agent-state.json ]; then
+              device_id=$(jq -r '.deviceId' /tmp/puls-agent-state.json)
+              break
+            fi
+            sleep 0.5
+          done
+          if [ -z "$device_id" ]; then
+            echo "puls-agent never wrote a state file (registration failed?)" >&2
+            exit 1
+          fi
+          echo "device: $device_id"
+
+          status=""
+          for i in $(seq 1 20); do
+            detail=$(curl -sf "http://localhost:8080/api/v1/devices/$device_id" \
+              -H "Authorization: Bearer $admin_token")
+            status=$(echo "$detail" | jq -r '.status')
+            [ "$status" = "online" ] && [ "$(echo "$detail" | jq '.recentHeartbeats | length')" -gt 0 ] && break
+            sleep 1
+          done
+
+          kill "$(cat /tmp/puls-agent.pid)" 2>/dev/null || true
+
+          if [ "$status" != "online" ]; then
+            echo "puls-agent device did not come online within timeout" >&2
+            exit 1
+          fi
+          echo "puls-agent came online with a real heartbeat  ok"
+
       - name: Server logs
         if: always()
         run: cat /tmp/puls-server.log
+
+      - name: Agent logs
+        if: always()
+        run: cat /tmp/puls-agent.log 2>/dev/null || echo "(no agent log)"
