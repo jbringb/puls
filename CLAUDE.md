@@ -29,11 +29,13 @@ SQLite, or `DATABASE_URL` (standard Postgres URL) to use the Postgres backend in
 - `github.com/coder/websocket` — context-aware WebSocket library
 - `golang.org/x/crypto/bcrypt` — registration secret hashing
 - `github.com/google/uuid` — request and device ID generation
+- `github.com/shirou/gopsutil/v4` — real host stats for `puls-agent` (CPU, memory, disk, processes)
 
 ## Structure
 
 ```
 cmd/puls-server/main.go          Entry point — wires everything together
+cmd/puls-agent/                  Reference device client (real host stats via gopsutil)
 internal/
   config/config.go               Env-based config struct
   auth/jwt.go                    HS256 JWT issuance + validation

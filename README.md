@@ -77,6 +77,52 @@ curl -s -X POST http://localhost:8080/api/v1/auth/admin-token \
 
 The response is `{"token": "<admin-jwt>"}`, valid for `PULS_ADMIN_TOKEN_EXPIRY` (default 24h).
 
+### puls-agent — watch your own machine show up
+
+`cmd/puls-agent` is a real device client: it registers with a running Puls server,
+holds a WebSocket connection, and reports actual CPU/memory/disk/uptime from
+whatever machine it's running on — not simulated data. With a server running
+(see above), in another terminal:
+
+```bash
+go run ./cmd/puls-agent -secret "a-registration-secret-at-least-16-chars"
+```
+
+Then check it's there:
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/auth/admin-token \
+  -H 'Content-Type: application/json' \
+  -d '{"secret":"separate-admin-password-min-16-chars"}'
+# {"token": "<admin-jwt>"}
+
+curl -s http://localhost:8080/api/v1/devices -H "Authorization: Bearer <admin-jwt>"
+```
+
+Your device shows up `online`, with `recentHeartbeats` carrying your real CPU,
+memory, and disk usage. The agent also answers on-demand diagnostic requests
+(`POST /api/v1/devices/{id}/diagnose`) with hostname, network interfaces, disk
+partitions, and top processes by CPU.
+
+By default it registers as a new device on first run and saves the resulting
+device ID/token to a local state file (`PULS_AGENT_STATE_FILE`, defaulting to
+your OS config dir) — restarting the agent reconnects as the same device
+instead of registering a new one every time.
+
+Flags (all also settable via `PULS_AGENT_*` env vars — see `-h`):
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `-server` | `http://localhost:8080` | Puls server base URL |
+| `-name` | hostname | device name to register |
+| `-secret` | — | registration secret, min 16 chars (only needed on first run) |
+| `-interval` | `20s` | heartbeat interval |
+| `-state-file` | OS config dir | where the device ID/token are saved |
+| `-os` | autodetected | override the reported OS (`windows` or `linux`; non-Windows hosts report as `linux`, since that's all the server models) |
+
+It builds and cross-compiles cleanly for Linux, Windows, and macOS (amd64/arm64) —
+see the `build-agent` job in CI.
+
 ## Dependencies
 
 | Package | Purpose |
@@ -86,3 +132,4 @@ The response is `{"token": "<admin-jwt>"}`, valid for `PULS_ADMIN_TOKEN_EXPIRY` 
 | `github.com/coder/websocket` | Context-aware WebSocket library |
 | `golang.org/x/crypto/bcrypt` | Registration secret hashing |
 | `github.com/google/uuid` | Request and device ID generation |
+| `github.com/shirou/gopsutil/v4` | Real host stats for `puls-agent` (CPU, memory, disk, processes) |
