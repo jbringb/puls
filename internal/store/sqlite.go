@@ -19,6 +19,9 @@ import (
 //go:embed schema.sql
 var schemaV1 string
 
+//go:embed schema_v2.sql
+var schemaV2 string
+
 // migrations are applied in ascending order; each bumps PRAGMA user_version once
 // committed. Never edit a released migration — append a new one instead.
 var migrations = []struct {
@@ -26,6 +29,7 @@ var migrations = []struct {
 	stmts   string
 }{
 	{version: 1, stmts: schemaV1},
+	{version: 2, stmts: schemaV2},
 }
 
 type rfc3339Time time.Time
@@ -166,13 +170,40 @@ func (s *SQLite) GetDevice(ctx context.Context, id string) (*model.Device, error
 	return d, err
 }
 
-func (s *SQLite) ListDevices(ctx context.Context) ([]model.Device, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, os, arch, status, registered_at, last_seen_at FROM devices ORDER BY registered_at DESC`)
-	if err != nil {
-		return nil, fmt.Errorf("store: list devices: %w", err)
+func (s *SQLite) ListDevices(ctx context.Context, limit int, cursor string) ([]model.Device, string, error) {
+	query := `SELECT id, name, os, arch, status, registered_at, last_seen_at FROM devices`
+	var args []any
+
+	if cursor != "" {
+		registeredAt, id, err := decodeDeviceCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		ts := registeredAt.UTC().Format(time.RFC3339)
+		query += ` WHERE registered_at < ? OR (registered_at = ? AND id < ?)`
+		args = append(args, ts, ts, id)
 	}
-	return collect(rows, scanDevice)
+	query += ` ORDER BY registered_at DESC, id DESC LIMIT ?`
+	// Fetch one extra row to detect whether a next page exists without a
+	// separate COUNT query.
+	args = append(args, limit+1)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list devices: %w", err)
+	}
+	devices, err := collect(rows, scanDevice)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(devices) > limit {
+		devices = devices[:limit]
+		last := devices[len(devices)-1]
+		nextCursor = encodeDeviceCursor(last.RegisteredAt, last.ID)
+	}
+	return devices, nextCursor, nil
 }
 
 func (s *SQLite) SetDeviceStatus(ctx context.Context, id string, status model.DeviceStatus) error {

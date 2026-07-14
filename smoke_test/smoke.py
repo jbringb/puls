@@ -393,11 +393,24 @@ def main() -> None:
     # ------------------------------------------------------------------
     print(f"[{step}/{TOTAL}] listing devices")
     step += 1
-    devices = get("/api/v1/devices", token=admin_token)
+    device_list = get("/api/v1/devices", token=admin_token)
+    devices = device_list["devices"]
     ids = [d["id"] for d in devices]
     if device_id not in ids:
         _die(f"registered device {device_id} missing from list")
     print(f"  {len(devices)} device(s) listed  ok")
+
+    # Pagination: limit=1 should return exactly 1 device and a nextCursor
+    # when more than one device exists (there's at least the one we just
+    # registered, and possibly others from a shared/persistent backend).
+    page = get("/api/v1/devices?limit=1", token=admin_token)
+    if len(page["devices"]) != 1:
+        _die(f"limit=1 returned {len(page['devices'])} devices, want 1")
+    if "nextCursor" in page and page["nextCursor"]:
+        next_page = get(f"/api/v1/devices?limit=1&cursor={page['nextCursor']}", token=admin_token)
+        if page["devices"][0]["id"] == next_page["devices"][0]["id"]:
+            _die("pagination returned the same device twice across pages")
+    print("  pagination (limit=1, cursor) ok")
 
     # ------------------------------------------------------------------
     # 8. SSE — verify event stream delivers heartbeat events

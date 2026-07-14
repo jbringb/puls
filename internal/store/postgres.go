@@ -19,6 +19,9 @@ import (
 //go:embed schema_postgres.sql
 var schemaPostgresV1 string
 
+//go:embed schema_postgres_v2.sql
+var schemaPostgresV2 string
+
 // pgMigrations are applied in version order; each is tracked in puls_schema_version.
 // Never edit a released migration — append a new one instead.
 var pgMigrations = []struct {
@@ -26,6 +29,7 @@ var pgMigrations = []struct {
 	stmts   string
 }{
 	{version: 1, stmts: schemaPostgresV1},
+	{version: 2, stmts: schemaPostgresV2},
 }
 
 // pulsMigrationLockID is a stable Postgres advisory lock key used to serialise
@@ -144,13 +148,39 @@ func (s *Postgres) GetDevice(ctx context.Context, id string) (*model.Device, err
 	return d, err
 }
 
-func (s *Postgres) ListDevices(ctx context.Context) ([]model.Device, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, os, arch, status, registered_at, last_seen_at FROM devices ORDER BY registered_at DESC`)
-	if err != nil {
-		return nil, fmt.Errorf("store: list devices: %w", err)
+func (s *Postgres) ListDevices(ctx context.Context, limit int, cursor string) ([]model.Device, string, error) {
+	query := `SELECT id, name, os, arch, status, registered_at, last_seen_at FROM devices`
+	var args []any
+
+	if cursor != "" {
+		registeredAt, id, err := decodeDeviceCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		query += ` WHERE registered_at < $1 OR (registered_at = $2 AND id < $3)`
+		args = append(args, registeredAt, registeredAt, id)
 	}
-	return collect(rows, scanPGDevice)
+	// Fetch one extra row to detect whether a next page exists without a
+	// separate COUNT query.
+	query += fmt.Sprintf(` ORDER BY registered_at DESC, id DESC LIMIT $%d`, len(args)+1)
+	args = append(args, limit+1)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, "", fmt.Errorf("store: list devices: %w", err)
+	}
+	devices, err := collect(rows, scanPGDevice)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var nextCursor string
+	if len(devices) > limit {
+		devices = devices[:limit]
+		last := devices[len(devices)-1]
+		nextCursor = encodeDeviceCursor(last.RegisteredAt, last.ID)
+	}
+	return devices, nextCursor, nil
 }
 
 func (s *Postgres) SetDeviceStatus(ctx context.Context, id string, status model.DeviceStatus) error {

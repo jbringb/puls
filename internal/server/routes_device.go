@@ -5,10 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/jbringb/puls/internal/model"
 	"github.com/jbringb/puls/internal/store"
+)
+
+const (
+	defaultDeviceListLimit = 50
+	maxDeviceListLimit     = 200
 )
 
 func (s *Server) handleAdminToken(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +77,24 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
-	devices, err := s.store.ListDevices(r.Context())
+	limit := defaultDeviceListLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		if n > maxDeviceListLimit {
+			n = maxDeviceListLimit
+		}
+		limit = n
+	}
+
+	devices, nextCursor, err := s.store.ListDevices(r.Context(), limit, r.URL.Query().Get("cursor"))
+	if errors.Is(err, store.ErrInvalidCursor) {
+		writeError(w, http.StatusBadRequest, "invalid cursor")
+		return
+	}
 	if err != nil {
 		s.logger.Error("list devices", "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to list devices")
@@ -90,7 +113,7 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, devices)
+	writeJSON(w, http.StatusOK, model.DeviceList{Devices: devices, NextCursor: nextCursor})
 }
 
 func (s *Server) handleGetDevice(w http.ResponseWriter, r *http.Request) {

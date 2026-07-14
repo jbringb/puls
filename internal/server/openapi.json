@@ -34,6 +34,13 @@
           "lastSeenAt":   { "type": "string" }
         }
       },
+      "DeviceList": {
+        "type": "object",
+        "properties": {
+          "devices":    { "type": "array", "items": { "$ref": "#/components/schemas/Device" } },
+          "nextCursor": { "type": "string", "description": "Opaque cursor for the next page; absent when there are no more results." }
+        }
+      },
       "Heartbeat": {
         "type": "object",
         "properties": {
@@ -205,14 +212,27 @@
       "get": {
         "operationId": "listDevices",
         "security": [{ "adminAuth": [] }],
+        "parameters": [
+          {
+            "name": "limit", "in": "query", "required": false,
+            "description": "Max devices to return (default 50, capped at 200).",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+          },
+          {
+            "name": "cursor", "in": "query", "required": false,
+            "description": "Opaque pagination cursor from a previous response's nextCursor.",
+            "schema": { "type": "string" }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Device" } }
+                "schema": { "$ref": "#/components/schemas/DeviceList" }
               }
             }
           },
+          "400": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "401": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }

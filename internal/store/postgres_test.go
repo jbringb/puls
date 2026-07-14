@@ -142,6 +142,81 @@ func TestPostgresHeartbeats(t *testing.T) {
 	}
 }
 
+func TestPostgresListDevicesPagination(t *testing.T) {
+	st := newTestPostgres(t)
+	ctx := context.Background()
+
+	const total = 5
+	want := make(map[string]bool, total)
+	for i := 0; i < total; i++ {
+		want[createPGDevice(t, st).ID] = true
+	}
+
+	seen := make(map[string]bool, total)
+	var order []string
+	cursor := ""
+	for pages := 0; ; pages++ {
+		if pages > total {
+			t.Fatalf("pagination did not terminate after %d pages", pages)
+		}
+		page, next, err := st.ListDevices(ctx, 2, cursor)
+		if err != nil {
+			t.Fatalf("ListDevices(cursor=%q): %v", cursor, err)
+		}
+		if cursor == "" && len(page) == 0 {
+			t.Fatal("first page is empty")
+		}
+		for _, d := range page {
+			if seen[d.ID] {
+				t.Fatalf("device %s returned twice across pages", d.ID)
+			}
+			seen[d.ID] = true
+			order = append(order, d.ID)
+		}
+		if next == "" {
+			break
+		}
+		cursor = next
+	}
+
+	if len(seen) != total {
+		t.Fatalf("saw %d devices across pages, want %d", len(seen), total)
+	}
+	for id := range want {
+		if !seen[id] {
+			t.Errorf("device %s never appeared in any page", id)
+		}
+	}
+
+	full, next, err := st.ListDevices(ctx, total, "")
+	if err != nil {
+		t.Fatalf("ListDevices(unpaginated): %v", err)
+	}
+	if next != "" {
+		t.Errorf("unpaginated fetch (limit=total) got a nextCursor, want none")
+	}
+	var fullOrder []string
+	for _, d := range full {
+		fullOrder = append(fullOrder, d.ID)
+	}
+	if len(fullOrder) != len(order) {
+		t.Fatalf("unpaginated order has %d ids, paginated walk has %d", len(fullOrder), len(order))
+	}
+	for i := range fullOrder {
+		if fullOrder[i] != order[i] {
+			t.Errorf("order mismatch at index %d: unpaginated=%s paginated=%s", i, fullOrder[i], order[i])
+		}
+	}
+}
+
+func TestPostgresListDevicesInvalidCursor(t *testing.T) {
+	st := newTestPostgres(t)
+	_, _, err := st.ListDevices(context.Background(), 10, "not-a-valid-cursor")
+	if !errors.Is(err, ErrInvalidCursor) {
+		t.Fatalf("ListDevices(bad cursor) error = %v, want ErrInvalidCursor", err)
+	}
+}
+
 func TestPostgresDiagnosticLifecycle(t *testing.T) {
 	st := newTestPostgres(t)
 	ctx := context.Background()

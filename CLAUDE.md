@@ -41,10 +41,13 @@ internal/
   auth/jwt.go                    HS256 JWT issuance + validation
   model/device.go                Shared domain types
   store/store.go                 Store interface + shared scan helpers
+  store/cursor.go                Opaque cursor encode/decode for device list pagination
   store/sqlite.go                SQLite implementation (PRAGMA user_version migrations)
   store/schema.sql               SQLite schema, embedded as migration v1
+  store/schema_v2.sql            SQLite migration v2 — device list pagination index
   store/postgres.go              Postgres implementation (puls_schema_version migrations)
   store/schema_postgres.sql      Postgres schema, embedded as migration v1
+  store/schema_postgres_v2.sql   Postgres migration v2 — device list pagination index
   ws/hub.go                      WebSocket connection registry
   ws/client.go                   Per-connection lifecycle
   ws/message.go                  Typed JSON message envelope
@@ -87,6 +90,9 @@ internal/
 - All JSON responses use `application/json`
 - Non-2xx responses return `{"error": "message"}`
 - Decode bodies with `json.NewDecoder` + `DisallowUnknownFields()`
+- List endpoints use cursor-based pagination (`?limit=&cursor=`), not offset —
+  see `GET /api/v1/devices` and `internal/store/cursor.go`. The cursor encodes
+  the last row's sort key(s), base64'd and opaque to clients.
 
 ### WebSocket
 - Messages are JSON envelopes: `{"type":"...","requestId":"...","data":{...}}`

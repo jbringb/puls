@@ -76,3 +76,11 @@ type DeviceDetail struct {
 	Device
 	RecentHeartbeats []Heartbeat `json:"recentHeartbeats"`
 }
+
+// DeviceList is a page of ListDevices results. A non-empty NextCursor means
+// more devices remain; pass it back as the next request's ?cursor= to
+// continue.
+type DeviceList struct {
+	Devices    []Device `json:"devices"`
+	NextCursor string   `json:"nextCursor,omitempty"`
+}

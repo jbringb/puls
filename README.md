@@ -77,6 +77,11 @@ curl -s -X POST http://localhost:8080/api/v1/auth/admin-token \
 
 The response is `{"token": "<admin-jwt>"}`, valid for `PULS_ADMIN_TOKEN_EXPIRY` (default 24h).
 
+`GET /api/v1/devices` is cursor-paginated: `?limit=` (default 50, max 200) and
+`?cursor=` (from a previous response's `nextCursor`). Responses look like
+`{"devices": [...], "nextCursor": "..."}` — `nextCursor` is omitted once
+there are no more pages.
+
 ### puls-agent — watch your own machine show up
 
 `cmd/puls-agent` is a real device client: it registers with a running Puls server,
