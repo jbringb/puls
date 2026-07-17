@@ -44,13 +44,24 @@ func NewClient(
 		heartbeatTimeout: heartbeatTimeout,
 		onMessage:        onMessage,
 	}
+	hub.wg.Add(1)
 	hub.Register(c)
 	return c
 }
 
 func (c *Client) Run(ctx context.Context) {
+	// Declared first so it runs last (defers are LIFO): Wait must not
+	// observe this client as "done" until the unregister + offline-status
+	// write below has actually completed.
+	defer c.hub.wg.Done()
 	defer func() {
-		c.hub.Unregister(c)
+		// Only the client that's still the hub's active entry for this
+		// device gets to mark it offline — a connection superseded by a
+		// newer one for the same device (Hub.Register's replace path) must
+		// not clobber the newer connection's online status.
+		if !c.hub.Unregister(c) {
+			return
+		}
 		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := c.store.SetDeviceStatus(offlineCtx, c.DeviceID, model.StatusOffline); err != nil {

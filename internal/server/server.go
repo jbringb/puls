@@ -140,5 +140,11 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("shutting down server")
 	s.hub.CloseAll()
+	// http.Shutdown doesn't track hijacked connections (which is what a
+	// WebSocket upgrade produces), so it wouldn't otherwise wait for
+	// connected devices' unregister + offline-status writes to finish.
+	if err := s.hub.Wait(ctx); err != nil {
+		s.logger.Warn("devices did not finish disconnecting before shutdown deadline", "err", err)
+	}
 	return s.http.Shutdown(ctx)
 }
