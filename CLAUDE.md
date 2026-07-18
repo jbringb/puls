@@ -139,6 +139,13 @@ internal/
   checked in `ws.Client.Run` via the `allowMessage` callback). Per-device, not
   per-IP, so devices sharing a NAT/proxy IP don't share a bucket, and one
   flooding device can't starve another's.
+- The Docker image runs as `65534:65534` ("nobody" — the conventional
+  non-root placeholder UID/GID; `scratch` has no `/etc/passwd`, so it's used
+  numerically), not root, to limit the blast radius of a container escape or
+  a leaked capability. The builder stage pre-creates and `chown`s `/data`
+  so a named volume mounted there for file-backed SQLite inherits that
+  ownership on first mount — see the Dockerfile's comments and the README's
+  Docker section for the operator-facing side of this.
 
 ## Workflow
 

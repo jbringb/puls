@@ -47,14 +47,21 @@ docker run -p 8080:8080 \
   puls-server
 ```
 
-With a persistent database:
+With a persistent database, use a named volume — the image runs as a
+non-root user (`65534:65534`), and a named volume correctly inherits that
+ownership on first mount. A host bind-mount (`-v /path/to/data:/data`)
+generally won't: it exposes the host directory's real ownership, which the
+container user typically can't write to, unless you `chown 65534:65534` the
+host path first.
 
 ```bash
+docker volume create puls-data
+
 docker run -p 8080:8080 \
   -e PULS_JWT_SECRET="your-signing-key-at-least-32-chars" \
   -e PULS_ADMIN_SECRET="your-admin-password-min-16-chars" \
   -e PULS_DB_PATH=/data/puls.db \
-  -v /path/to/data:/data \
+  -v puls-data:/data \
   puls-server
 ```
 
