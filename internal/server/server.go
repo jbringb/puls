@@ -56,13 +56,7 @@ func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, 
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
-	// metrics wraps the mux so r.Pattern is populated (set by ServeMux on the
-	// request pointer) before the route label is read after dispatch.
-	var handler http.Handler = mux
-	handler = metrics.Middleware(handler)
-	handler = maxBytesMiddleware(handler)
-	handler = loggingMiddleware(logger, handler)
-	handler = recoveryMiddleware(logger, handler)
+	handler := wrapMiddleware(mux, metrics, logger)
 	if cfg.OTelEndpoint != "" {
 		handler = otelhttp.NewHandler(handler, "puls")
 	}
@@ -80,6 +74,27 @@ func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, 
 	}
 
 	return s, nil
+}
+
+// wrapMiddleware assembles the standard middleware chain around next
+// (normally the ServeMux). recoveryMiddleware sits innermost — closer to
+// next than metrics.Middleware and loggingMiddleware — so that when a
+// handler panics, recovery catches it and writes a real status code before
+// metrics/logging's own deferred status reads run. If recovery instead
+// wrapped metrics/logging (as it originally did), a panic would unwind
+// through their deferred reads first, while the response writer's status
+// was still stuck at its zero-value default (200) — recording and logging
+// a successful-looking 200 for what the client actually received as a 500.
+//
+// Extracted from New so a test can exercise the exact real ordering against
+// a substitute handler, without duplicating it inline.
+func wrapMiddleware(next http.Handler, metrics *observability.Metrics, logger *slog.Logger) http.Handler {
+	handler := next
+	handler = maxBytesMiddleware(handler)
+	handler = recoveryMiddleware(logger, handler)
+	handler = metrics.Middleware(handler)
+	handler = loggingMiddleware(logger, handler)
+	return handler
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {

@@ -80,8 +80,14 @@ func (m *Metrics) HTTPHandler() http.Handler {
 }
 
 // Middleware records puls_http_requests_total and puls_http_request_duration_seconds.
-// It must wrap the ServeMux directly so that r.Pattern is populated (set by the
-// ServeMux on the request pointer before this middleware reads it after dispatch).
+// next must eventually reach the ServeMux so r.Pattern is populated (set by
+// the ServeMux on the request pointer during its own dispatch, before this
+// middleware's deferred read runs) — but layers between this and the mux are
+// fine as long as they don't swallow r or fork it. It must also sit outside
+// any panic-recovery layer: recovery needs to catch a panic and write the
+// real status code before this middleware's deferred read sees it, or the
+// read observes whatever zero-value status was captured before the panic
+// unwound past it.
 func (m *Metrics) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
