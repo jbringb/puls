@@ -63,7 +63,12 @@
           "scope":       { "type": "string" },
           "requestedAt": { "type": "string" },
           "receivedAt":  { "type": "string" },
-          "payload":     { "type": "object" }
+          "payload":     { "type": "object" },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "completed", "timed_out"],
+            "description": "Derived, not stored. timed_out means the device hasn't answered within PULS_DIAGNOSTIC_TIMEOUT — it may still answer late; the request isn't deleted until it does or an admin re-requests."
+          }
         }
       }
     }

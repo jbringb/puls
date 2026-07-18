@@ -233,6 +233,14 @@ func (s *Postgres) CreateDiagnosticRequest(ctx context.Context, deviceID, reques
 	return &model.DiagnosticResult{DeviceID: deviceID, RequestID: requestID, Scope: scope, RequestedAt: now}, nil
 }
 
+func (s *Postgres) DeleteDiagnosticRequest(ctx context.Context, requestID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM diagnostic_results WHERE request_id = $1`, requestID)
+	if err != nil {
+		return fmt.Errorf("store: delete diagnostic request: %w", err)
+	}
+	return nil
+}
+
 func (s *Postgres) SaveDiagnosticResult(ctx context.Context, requestID string, payload []byte) error {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE diagnostic_results SET received_at = $1, payload = $2 WHERE request_id = $3`,

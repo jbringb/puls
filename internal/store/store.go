@@ -30,6 +30,10 @@ type Store interface {
 	ListHeartbeats(ctx context.Context, deviceID string, limit int) ([]model.Heartbeat, error)
 
 	CreateDiagnosticRequest(ctx context.Context, deviceID, requestID string, scope model.DiagnosticScope) (*model.DiagnosticResult, error)
+	// DeleteDiagnosticRequest removes a request that's known to have failed
+	// delivery (e.g. the device disconnected before Send completed) — it
+	// will never be answered, so there's no reason to leave it "pending".
+	DeleteDiagnosticRequest(ctx context.Context, requestID string) error
 	SaveDiagnosticResult(ctx context.Context, requestID string, payload []byte) error
 	ListDiagnosticResults(ctx context.Context, deviceID string, limit int) ([]model.DiagnosticResult, error)
 	GetDiagnosticResult(ctx context.Context, requestID string) (*model.DiagnosticResult, error)

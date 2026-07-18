@@ -93,6 +93,14 @@ internal/
 - List endpoints use cursor-based pagination (`?limit=&cursor=`), not offset —
   see `GET /api/v1/devices` and `internal/store/cursor.go`. The cursor encodes
   the last row's sort key(s), base64'd and opaque to clients.
+- Diagnostic requests have a derived `status` (`pending`/`completed`/`timed_out`,
+  see `diagnosticStatus` in `routes_diagnostics.go`) instead of relying on a
+  nil payload alone — a device can disconnect between delivery and
+  responding, so "no payload yet" can't otherwise distinguish "still working"
+  from "will never answer". `PULS_DIAGNOSTIC_TIMEOUT` (default 60s) controls
+  when a request flips to `timed_out`; the row isn't deleted, so a late
+  response still lands. A request whose delivery fails synchronously (encode
+  or send error) is deleted immediately instead of waiting out the timeout.
 
 ### WebSocket
 - Messages are JSON envelopes: `{"type":"...","requestId":"...","data":{...}}`

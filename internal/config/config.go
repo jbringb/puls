@@ -27,6 +27,12 @@ type Config struct {
 
 	HeartbeatTimeout time.Duration // PULS_HEARTBEAT_TIMEOUT, default 90s
 
+	// DiagnosticTimeout bounds how long a diagnose request is reported as
+	// "pending" before GET .../diagnostics instead reports it "timed_out" —
+	// the device may still answer late (the row isn't deleted), but callers
+	// stop being told it's still in flight.
+	DiagnosticTimeout time.Duration // PULS_DIAGNOSTIC_TIMEOUT, default 60s
+
 	// AllowedOrigins restricts browser WebSocket upgrades. Empty (default) means
 	// same-origin only; non-browser clients send no Origin and are unaffected.
 	AllowedOrigins []string // PULS_ALLOWED_ORIGINS, comma-separated
@@ -70,6 +76,11 @@ func Load() (*Config, error) {
 	c.HeartbeatTimeout, err = envDuration("PULS_HEARTBEAT_TIMEOUT", 90*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("config: PULS_HEARTBEAT_TIMEOUT: %w", err)
+	}
+
+	c.DiagnosticTimeout, err = envDuration("PULS_DIAGNOSTIC_TIMEOUT", 60*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("config: PULS_DIAGNOSTIC_TIMEOUT: %w", err)
 	}
 
 	if err := c.validate(); err != nil {

@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -51,17 +53,32 @@ func (s *Server) handleRequestDiagnostics(w http.ResponseWriter, r *http.Request
 	msg, err := ws.Encode(ws.TypeDiagRequest, requestID, ws.DiagRequestData{Scope: string(body.Scope)})
 	if err != nil {
 		s.logger.Error("encode diag request", "err", err)
+		s.deleteOrphanedDiagnosticRequest(ctx, requestID)
 		writeError(w, http.StatusInternalServerError, "failed to encode request")
 		return
 	}
 
 	if err := s.hub.Send(ctx, deviceID, msg); err != nil {
 		s.logger.Error("send diag request", "device_id", deviceID, "err", err)
+		s.deleteOrphanedDiagnosticRequest(ctx, requestID)
 		writeError(w, http.StatusServiceUnavailable, "failed to deliver request to device")
 		return
 	}
 
+	result.Status = model.DiagnosticPending
 	writeJSON(w, http.StatusAccepted, result)
+}
+
+// deleteOrphanedDiagnosticRequest cleans up a diagnostic_results row after a
+// failure known, at request time, to mean the row can never be answered
+// (encoding failed, or the device disconnected before delivery). Failure to
+// delete is logged, not surfaced — the caller's original error takes
+// priority, and an orphaned row still self-resolves via diagnosticStatus's
+// timeout once PULS_DIAGNOSTIC_TIMEOUT elapses.
+func (s *Server) deleteOrphanedDiagnosticRequest(ctx context.Context, requestID string) {
+	if err := s.store.DeleteDiagnosticRequest(ctx, requestID); err != nil {
+		s.logger.Warn("delete orphaned diagnostic request", "request_id", requestID, "err", err)
+	}
 }
 
 func (s *Server) handleListDiagnostics(w http.ResponseWriter, r *http.Request) {
@@ -74,5 +91,21 @@ func (s *Server) handleListDiagnostics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	for i := range results {
+		results[i].Status = diagnosticStatus(results[i], s.cfg.DiagnosticTimeout)
+	}
 	writeJSON(w, http.StatusOK, results)
+}
+
+// diagnosticStatus derives a DiagnosticResult's status: a device can still
+// answer after timeout elapses (the row isn't deleted), so TimedOut means
+// "stop waiting", not "never will complete".
+func diagnosticStatus(d model.DiagnosticResult, timeout time.Duration) model.DiagnosticRequestStatus {
+	if d.Payload != nil {
+		return model.DiagnosticCompleted
+	}
+	if time.Since(d.RequestedAt) > timeout {
+		return model.DiagnosticTimedOut
+	}
+	return model.DiagnosticPending
 }

@@ -252,3 +252,26 @@ func TestPostgresDiagnosticLifecycle(t *testing.T) {
 		t.Errorf("SaveDiagnosticResult(unknown) = %v, want ErrNotFound", err)
 	}
 }
+
+func TestPostgresDeleteDiagnosticRequest(t *testing.T) {
+	st := newTestPostgres(t)
+	ctx := context.Background()
+	d := createPGDevice(t, st)
+
+	const reqID = "req-pg-to-delete"
+	if _, err := st.CreateDiagnosticRequest(ctx, d.ID, reqID, model.ScopeFull); err != nil {
+		t.Fatalf("CreateDiagnosticRequest: %v", err)
+	}
+
+	if err := st.DeleteDiagnosticRequest(ctx, reqID); err != nil {
+		t.Fatalf("DeleteDiagnosticRequest: %v", err)
+	}
+
+	if _, err := st.GetDiagnosticResult(ctx, reqID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetDiagnosticResult after delete = %v, want ErrNotFound", err)
+	}
+
+	if err := st.DeleteDiagnosticRequest(ctx, "never-existed"); err != nil {
+		t.Errorf("DeleteDiagnosticRequest(unknown) = %v, want nil", err)
+	}
+}

@@ -247,3 +247,28 @@ func TestDiagnosticLifecycle(t *testing.T) {
 		t.Errorf("SaveDiagnosticResult(unknown) = %v, want ErrNotFound", err)
 	}
 }
+
+func TestDeleteDiagnosticRequest(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	d := createDevice(t, st)
+
+	const reqID = "req-to-delete"
+	if _, err := st.CreateDiagnosticRequest(ctx, d.ID, reqID, model.ScopeFull); err != nil {
+		t.Fatalf("CreateDiagnosticRequest: %v", err)
+	}
+
+	if err := st.DeleteDiagnosticRequest(ctx, reqID); err != nil {
+		t.Fatalf("DeleteDiagnosticRequest: %v", err)
+	}
+
+	if _, err := st.GetDiagnosticResult(ctx, reqID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetDiagnosticResult after delete = %v, want ErrNotFound", err)
+	}
+
+	// Deleting a request that never existed (or was already deleted) is a
+	// no-op, not an error — callers use this for best-effort cleanup.
+	if err := st.DeleteDiagnosticRequest(ctx, "never-existed"); err != nil {
+		t.Errorf("DeleteDiagnosticRequest(unknown) = %v, want nil", err)
+	}
+}

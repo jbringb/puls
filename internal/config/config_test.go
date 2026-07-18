@@ -11,6 +11,7 @@ var allEnvKeys = []string{
 	"PULS_HTTP_ADDR", "PULS_TLS_CERT", "PULS_TLS_KEY", "PULS_DB_PATH",
 	"PULS_JWT_SECRET", "PULS_ADMIN_SECRET",
 	"PULS_DEVICE_TOKEN_EXPIRY", "PULS_ADMIN_TOKEN_EXPIRY", "PULS_HEARTBEAT_TIMEOUT",
+	"PULS_DIAGNOSTIC_TIMEOUT",
 	"PULS_LOG_FORMAT", "PULS_LOG_LEVEL",
 }
 
@@ -90,6 +91,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.AdminTokenExpiry.Hours() != 24 {
 		t.Errorf("AdminTokenExpiry = %v, want 24h", cfg.AdminTokenExpiry)
+	}
+	if cfg.DiagnosticTimeout.Seconds() != 60 {
+		t.Errorf("DiagnosticTimeout = %v, want 60s", cfg.DiagnosticTimeout)
 	}
 	if cfg.TLSEnabled() {
 		t.Errorf("TLSEnabled() = true, want false")

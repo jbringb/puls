@@ -62,14 +62,27 @@ const (
 	ScopeStorage   DiagnosticScope = "storage"
 )
 
+// DiagnosticRequestStatus is derived, not stored — see server.diagnosticStatus.
+// It exists so a caller polling for a result can tell "still waiting on the
+// device" (Pending) apart from "delivered but the device never answered, and
+// won't now" (TimedOut), which an absent Payload alone can't distinguish.
+type DiagnosticRequestStatus string
+
+const (
+	DiagnosticPending   DiagnosticRequestStatus = "pending"
+	DiagnosticCompleted DiagnosticRequestStatus = "completed"
+	DiagnosticTimedOut  DiagnosticRequestStatus = "timed_out"
+)
+
 type DiagnosticResult struct {
-	ID          int64            `json:"id"`
-	DeviceID    string           `json:"deviceId"`
-	RequestID   string           `json:"requestId"`
-	Scope       DiagnosticScope  `json:"scope"`
-	RequestedAt time.Time        `json:"requestedAt"`
-	ReceivedAt  *time.Time       `json:"receivedAt,omitempty"`
-	Payload     *json.RawMessage `json:"payload,omitempty"`
+	ID          int64                   `json:"id"`
+	DeviceID    string                  `json:"deviceId"`
+	RequestID   string                  `json:"requestId"`
+	Scope       DiagnosticScope         `json:"scope"`
+	RequestedAt time.Time               `json:"requestedAt"`
+	ReceivedAt  *time.Time              `json:"receivedAt,omitempty"`
+	Payload     *json.RawMessage        `json:"payload,omitempty"`
+	Status      DiagnosticRequestStatus `json:"status"`
 }
 
 type DeviceDetail struct {
