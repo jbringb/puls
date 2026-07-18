@@ -29,7 +29,9 @@ jobs:
         run: go build -o puls-server ./cmd/puls-server
 
       - name: Start server
-        run: nohup ./puls-server > /tmp/puls-server.log 2>&1 &
+        run: |
+          nohup ./puls-server > /tmp/puls-server.log 2>&1 &
+          echo $! > /tmp/puls-server.pid
 
       - name: Wait for server to be ready
         run: |
@@ -100,9 +102,93 @@ jobs:
           fi
           echo "puls-agent came online with a real heartbeat  ok"
 
+      - name: Graceful shutdown smoke check
+        run: |
+          server_pid=$(cat /tmp/puls-server.pid)
+
+          # Fresh agent connection, kept alive until after SIGTERM — the
+          # earlier "Run puls-agent smoke check" step already killed its own.
+          ./puls-agent \
+            -server http://localhost:8080 \
+            -name "ci-shutdown-smoke-check" \
+            -secret "ci-shutdown-registration-secret-value" \
+            -interval 2s \
+            -state-file /tmp/puls-shutdown-agent-state.json \
+            > /tmp/puls-shutdown-agent.log 2>&1 &
+          shutdown_agent_pid=$!
+
+          admin_token=$(curl -sf -X POST http://localhost:8080/api/v1/auth/admin-token \
+            -H 'Content-Type: application/json' \
+            -d "{\"secret\":\"$PULS_ADMIN_SECRET\"}" | jq -r '.token')
+
+          device_id=""
+          for i in $(seq 1 20); do
+            if [ -f /tmp/puls-shutdown-agent-state.json ]; then
+              device_id=$(jq -r '.deviceId' /tmp/puls-shutdown-agent-state.json)
+              break
+            fi
+            sleep 0.5
+          done
+          if [ -z "$device_id" ]; then
+            echo "shutdown-check agent never registered" >&2
+            exit 1
+          fi
+
+          status=""
+          for i in $(seq 1 20); do
+            status=$(curl -sf "http://localhost:8080/api/v1/devices/$device_id" \
+              -H "Authorization: Bearer $admin_token" | jq -r '.status')
+            [ "$status" = "online" ] && break
+            sleep 1
+          done
+          if [ "$status" != "online" ]; then
+            echo "shutdown-check device never came online" >&2
+            exit 1
+          fi
+          echo "device online, sending SIGTERM to puls-server (pid $server_pid)"
+
+          kill -TERM "$server_pid"
+
+          for i in $(seq 1 20); do
+            kill -0 "$server_pid" 2>/dev/null || break
+            sleep 0.5
+          done
+          if kill -0 "$server_pid" 2>/dev/null; then
+            echo "puls-server did not exit within 10s of SIGTERM" >&2
+            exit 1
+          fi
+          echo "puls-server exited after SIGTERM"
+
+          kill "$shutdown_agent_pid" 2>/dev/null || true
+
+          # Confirms SIGTERM reaches the real binary and drives a graceful
+          # shutdown that cleanly closes the device's WebSocket (not just
+          # that the process happens to die). This is real-artifact coverage
+          # for the shutdown path, not a precise regression test for
+          # Server.Shutdown's hub.Wait — that async cleanup is fast enough
+          # (sub-millisecond locally) that black-box log observation can't
+          # reliably tell "explicitly waited for it" apart from "it finished
+          # before the process happened to fully exit anyway". That specific
+          # regression is covered deterministically by
+          # TestShutdownWaitsForDeviceCleanup in internal/server, which
+          # asserts against Shutdown's return, not OS process-exit timing.
+          if ! grep -q '"msg":"shutting down server"' /tmp/puls-server.log; then
+            echo "server log missing 'shutting down server' — graceful shutdown path may not have run" >&2
+            exit 1
+          fi
+          if ! grep '"msg":"device disconnected"' /tmp/puls-server.log | grep -q "\"device_id\":\"$device_id\""; then
+            echo "server log missing 'device disconnected' for $device_id" >&2
+            exit 1
+          fi
+          echo "graceful shutdown confirmed: SIGTERM cleanly closed the device connection  ok"
+
       - name: Server logs
         if: always()
         run: cat /tmp/puls-server.log
+
+      - name: Shutdown-check agent logs
+        if: always()
+        run: cat /tmp/puls-shutdown-agent.log 2>/dev/null || echo "(no shutdown-check agent log)"
 
       - name: Agent logs
         if: always()

@@ -137,8 +137,15 @@ class DeviceSession(threading.Thread):
         self._stop_event: asyncio.Event | None = None
 
     def stop(self) -> None:
+        # If the connection already closed on its own (e.g. the server
+        # replaced it via a reconnect), _session() has already returned and
+        # asyncio.run() in run() has torn down the loop — nothing left to
+        # signal.
         if self._loop and self._stop_event:
-            self._loop.call_soon_threadsafe(self._stop_event.set)
+            try:
+                self._loop.call_soon_threadsafe(self._stop_event.set)
+            except RuntimeError:
+                pass
 
     def run(self) -> None:
         asyncio.run(self._session())
@@ -202,6 +209,42 @@ class DeviceSession(threading.Thread):
                 await asyncio.wait_for(self._stop_event.wait(), timeout=2.0)
             except asyncio.TimeoutError:
                 pass
+
+
+def check_reconnect_status(device_id: str, device_token: str, admin_token: str) -> "DeviceSession":
+    """
+    Starts a second DeviceSession for a device that's already connected via
+    an earlier one, without closing the first — this is exactly
+    Hub.Register's replace-and-close path. The first connection's Run
+    goroutine notices it was replaced and cleans up asynchronously; this used
+    to be able to write the device "offline" after the second connection had
+    already written "online", leaving it stuck offline despite being
+    actively connected.
+
+    Polls for a couple seconds to give a stale write a chance to land and
+    confirms it never does, then returns the new session — the caller should
+    treat it as the device's connection from here on, since the first one is
+    now closed server-side.
+    """
+    session = DeviceSession(device_token)
+    session.start()
+    if not session.ready.wait(timeout=15):
+        _die("reconnect: second WebSocket session did not become ready within 15s")
+    if session.error:
+        _die(f"reconnect: second WebSocket session error: {session.error}")
+
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        detail = get(f"/api/v1/devices/{device_id}", token=admin_token)
+        if detail.get("status") != "online":
+            _die(
+                f"device status = {detail.get('status')!r} while the "
+                "reconnected WebSocket is still open, want online "
+                "(the first connection's stale cleanup likely clobbered it)"
+            )
+        time.sleep(0.2)
+
+    return session
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +326,7 @@ def preflight() -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-TOTAL = 11
+TOTAL = 12
 
 
 def main() -> None:
@@ -389,7 +432,22 @@ def main() -> None:
     print(f"  status=online  heartbeats={len(heartbeats)}  cpu={hb.get('cpuPercent')}%")
 
     # ------------------------------------------------------------------
-    # 7. List devices
+    # 7. Reconnect — status must not get stuck offline
+    # ------------------------------------------------------------------
+    print(f"[{step}/{TOTAL}] reconnecting (2nd WebSocket for the same device)")
+    step += 1
+    new_session = check_reconnect_status(device_id, device_token, admin_token)
+    # The first connection is now closed server-side (replaced by the
+    # second); stop its session cleanly and treat the new one as "the
+    # device" for the rest of the test — it's what's actually still
+    # connected and sending heartbeats now.
+    session.stop()
+    session.join(timeout=5)
+    session = new_session
+    print("  status stayed online through reconnect  ok")
+
+    # ------------------------------------------------------------------
+    # 8. List devices
     # ------------------------------------------------------------------
     print(f"[{step}/{TOTAL}] listing devices")
     step += 1
@@ -413,7 +471,7 @@ def main() -> None:
     print("  pagination (limit=1, cursor) ok")
 
     # ------------------------------------------------------------------
-    # 8. SSE — verify event stream delivers heartbeat events
+    # 9. SSE — verify event stream delivers heartbeat events
     # ------------------------------------------------------------------
     print(f"[{step}/{TOTAL}] SSE — streaming events (up to 12s)")
     step += 1
@@ -423,7 +481,7 @@ def main() -> None:
     print(f"  received {n} event(s)  ok")
 
     # ------------------------------------------------------------------
-    # 9. Request diagnostics
+    # 10. Request diagnostics
     # ------------------------------------------------------------------
     print(f"[{step}/{TOTAL}] requesting diagnostics")
     step += 1
@@ -458,7 +516,7 @@ def main() -> None:
     print(f"  payload: hostname={payload.get('hostname')}  cpuCores={payload.get('cpuCores')}")
 
     # ------------------------------------------------------------------
-    # 10. Metrics endpoint
+    # 11. Metrics endpoint
     # ------------------------------------------------------------------
     print(f"[{step}/{TOTAL}] metrics endpoint")
     step += 1
@@ -476,7 +534,7 @@ def main() -> None:
         print(f"  puls_heartbeats_total={count_str}  ok")
 
     # ------------------------------------------------------------------
-    # 11. Teardown WebSocket session
+    # 12. Teardown WebSocket session
     # ------------------------------------------------------------------
     print(f"[{step}/{TOTAL}] closing device WebSocket")
     step += 1
