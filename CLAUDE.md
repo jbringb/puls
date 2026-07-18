@@ -98,6 +98,8 @@ internal/
 - Messages are JSON envelopes: `{"type":"...","requestId":"...","data":{...}}`
 - Message types: `heartbeat`, `diag_request`, `diag_response`, `error`
 - Clients must heartbeat within 90 seconds or the connection is closed
+- Inbound messages are rate-limited per device (5 msg/s, burst 20); a device
+  that exceeds it gets an `error` envelope back, not a dropped connection
 - Auth on upgrade, in order of preference: `Authorization: Bearer`, the
   `puls.bearer` subprotocol (`Sec-WebSocket-Protocol: puls.bearer, <token>`),
   then `?token=` (fallback only — leaks into logs)
@@ -112,7 +114,8 @@ internal/
   when the endpoint is set.
 - Key metrics: `puls_http_requests_total{method,route,status}`,
   `puls_http_request_duration_seconds{method,route}`, `puls_heartbeats_total`,
-  `puls_devices_connected` (GaugeFunc backed by `hub.Count()`)
+  `puls_devices_connected` (GaugeFunc backed by `hub.Count()`),
+  `puls_ws_messages_rejected_total` (per-device WS rate limit, see Security)
 
 ### Security
 - JWT signing: HS256. Signing key from `PULS_JWT_SECRET` (min 32 chars)
@@ -122,6 +125,12 @@ internal/
 - Device JWTs expire after 90 days; admin tokens after 24 hours
 - Registration secrets hashed with bcrypt (cost 12) before storage
 - Always validate the `Origin` header on WebSocket upgrades
+- Rate limiting uses `internal/server/keyedRateLimiter`, a token bucket keyed by
+  an arbitrary string — client IP for the public HTTP endpoints (`rateLimit`
+  middleware), device ID for inbound WebSocket messages (`Server.wsLimiter`,
+  checked in `ws.Client.Run` via the `allowMessage` callback). Per-device, not
+  per-IP, so devices sharing a NAT/proxy IP don't share a bucket, and one
+  flooding device can't starve another's.
 
 ## Workflow
 

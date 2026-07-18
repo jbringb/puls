@@ -24,6 +24,7 @@ type Client struct {
 	logger           *slog.Logger
 	heartbeatTimeout time.Duration
 	onMessage        HandlerFunc
+	allowMessage     func() bool
 }
 
 func NewClient(
@@ -34,6 +35,7 @@ func NewClient(
 	logger *slog.Logger,
 	heartbeatTimeout time.Duration,
 	onMessage HandlerFunc,
+	allowMessage func() bool,
 ) *Client {
 	c := &Client{
 		DeviceID:         deviceID,
@@ -43,6 +45,7 @@ func NewClient(
 		logger:           logger,
 		heartbeatTimeout: heartbeatTimeout,
 		onMessage:        onMessage,
+		allowMessage:     allowMessage,
 	}
 	hub.wg.Add(1)
 	hub.Register(c)
@@ -84,6 +87,13 @@ func (c *Client) Run(ctx context.Context) {
 		if err := json.Unmarshal(raw, &env); err != nil {
 			c.logger.Warn("malformed message", "device_id", c.DeviceID, "err", err)
 			errMsg, _ := EncodeError("", "malformed message")
+			_ = c.send(ctx, errMsg)
+			continue
+		}
+
+		if c.allowMessage != nil && !c.allowMessage() {
+			c.logger.Warn("device exceeded message rate limit", "device_id", c.DeviceID, "type", env.Type)
+			errMsg, _ := EncodeError(env.RequestID, "rate limit exceeded")
 			_ = c.send(ctx, errMsg)
 			continue
 		}

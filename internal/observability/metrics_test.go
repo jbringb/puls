@@ -30,6 +30,7 @@ func TestMetricsHTTPHandler(t *testing.T) {
 		"puls_http_request_duration_seconds",
 		"puls_heartbeats_total 0",
 		"puls_devices_connected 3",
+		"puls_ws_messages_rejected_total 0",
 	} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("metrics output missing %q\nfull output:\n%s", want, body)
@@ -93,5 +94,20 @@ func TestHeartbeatCounter(t *testing.T) {
 
 	if !strings.Contains(string(body), "puls_heartbeats_total 2") {
 		t.Errorf("expected puls_heartbeats_total 2 in:\n%s", body)
+	}
+}
+
+func TestWSMessagesRejectedCounter(t *testing.T) {
+	m, _ := NewMetrics(func() int { return 0 })
+	m.IncWSMessageRejected()
+	m.IncWSMessageRejected()
+	m.IncWSMessageRejected()
+
+	rec := httptest.NewRecorder()
+	m.HTTPHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body, _ := io.ReadAll(rec.Body)
+
+	if !strings.Contains(string(body), "puls_ws_messages_rejected_total 3") {
+		t.Errorf("expected puls_ws_messages_rejected_total 3 in:\n%s", body)
 	}
 }

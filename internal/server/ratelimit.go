@@ -7,10 +7,12 @@ import (
 	"time"
 )
 
-// ipRateLimiter is a per-client token-bucket rate limiter. Each client IP gets a
-// bucket that refills at `rate` tokens/second up to `burst`. Buckets are created
-// lazily and idle ones are swept periodically so the map can't grow unbounded.
-type ipRateLimiter struct {
+// keyedRateLimiter is a token-bucket rate limiter shared across arbitrary keys —
+// client IP for HTTP endpoints, device ID for WebSocket messages. Each key gets
+// its own bucket that refills at `rate` tokens/second up to `burst`. Buckets are
+// created lazily and idle ones are swept periodically so the map can't grow
+// unbounded.
+type keyedRateLimiter struct {
 	mu        sync.Mutex
 	buckets   map[string]*bucket
 	rate      float64 // tokens per second
@@ -28,8 +30,8 @@ const (
 	rateLimitBucketTTL     = 10 * time.Minute
 )
 
-func newIPRateLimiter(ratePerSec float64, burst int) *ipRateLimiter {
-	return &ipRateLimiter{
+func newRateLimiter(ratePerSec float64, burst int) *keyedRateLimiter {
+	return &keyedRateLimiter{
 		buckets:   make(map[string]*bucket),
 		rate:      ratePerSec,
 		burst:     float64(burst),
@@ -37,7 +39,7 @@ func newIPRateLimiter(ratePerSec float64, burst int) *ipRateLimiter {
 	}
 }
 
-func (l *ipRateLimiter) allow(key string) bool {
+func (l *keyedRateLimiter) allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -66,7 +68,7 @@ func (l *ipRateLimiter) allow(key string) bool {
 
 // sweep evicts buckets that have been idle longer than the TTL. Must be called
 // while holding l.mu.
-func (l *ipRateLimiter) sweep(now time.Time) {
+func (l *keyedRateLimiter) sweep(now time.Time) {
 	if now.Sub(l.lastSweep) < rateLimitSweepInterval {
 		return
 	}
@@ -78,8 +80,8 @@ func (l *ipRateLimiter) sweep(now time.Time) {
 	l.lastSweep = now
 }
 
-// rateLimit rejects requests from a client IP that has exhausted its bucket.
-func rateLimit(l *ipRateLimiter, next http.Handler) http.Handler {
+// rateLimit rejects HTTP requests from a client IP that has exhausted its bucket.
+func rateLimit(l *keyedRateLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !l.allow(clientIP(r)) {
 			w.Header().Set("Retry-After", "1")

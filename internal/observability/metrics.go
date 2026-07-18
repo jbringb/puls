@@ -12,10 +12,11 @@ import (
 
 // Metrics holds the custom Prometheus registry and all application collectors.
 type Metrics struct {
-	reg                 *prometheus.Registry
-	httpRequestsTotal   *prometheus.CounterVec
-	httpRequestDuration *prometheus.HistogramVec
-	HeartbeatsTotal     prometheus.Counter
+	reg                     *prometheus.Registry
+	httpRequestsTotal       *prometheus.CounterVec
+	httpRequestDuration     *prometheus.HistogramVec
+	HeartbeatsTotal         prometheus.Counter
+	WSMessagesRejectedTotal prometheus.Counter
 }
 
 // NewMetrics creates a fresh isolated Prometheus registry and registers the
@@ -40,13 +41,18 @@ func NewMetrics(connectedDevices func() int) (*Metrics, error) {
 		Help: "Total heartbeat messages received from devices.",
 	})
 
+	wsMessagesRejectedTotal := prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "puls_ws_messages_rejected_total",
+		Help: "Total WebSocket messages rejected because a device exceeded its per-device rate limit.",
+	})
+
 	devicesConnected := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Name: "puls_devices_connected",
 		Help: "Current number of devices with an active WebSocket connection.",
 	}, func() float64 { return float64(connectedDevices()) })
 
 	for _, c := range []prometheus.Collector{
-		httpReqTotal, httpReqDuration, heartbeatsTotal, devicesConnected,
+		httpReqTotal, httpReqDuration, heartbeatsTotal, devicesConnected, wsMessagesRejectedTotal,
 	} {
 		if err := reg.Register(c); err != nil {
 			return nil, fmt.Errorf("observability: register metric: %w", err)
@@ -54,15 +60,19 @@ func NewMetrics(connectedDevices func() int) (*Metrics, error) {
 	}
 
 	return &Metrics{
-		reg:                 reg,
-		httpRequestsTotal:   httpReqTotal,
-		httpRequestDuration: httpReqDuration,
-		HeartbeatsTotal:     heartbeatsTotal,
+		reg:                     reg,
+		httpRequestsTotal:       httpReqTotal,
+		httpRequestDuration:     httpReqDuration,
+		HeartbeatsTotal:         heartbeatsTotal,
+		WSMessagesRejectedTotal: wsMessagesRejectedTotal,
 	}, nil
 }
 
 // IncHeartbeat increments puls_heartbeats_total.
 func (m *Metrics) IncHeartbeat() { m.HeartbeatsTotal.Inc() }
+
+// IncWSMessageRejected increments puls_ws_messages_rejected_total.
+func (m *Metrics) IncWSMessageRejected() { m.WSMessagesRejectedTotal.Inc() }
 
 // HTTPHandler returns a Prometheus scrape handler scoped to this registry.
 func (m *Metrics) HTTPHandler() http.Handler {

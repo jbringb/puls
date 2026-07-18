@@ -87,6 +87,13 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.logger,
 		s.cfg.HeartbeatTimeout,
 		s.handleWSMessage,
+		func() bool {
+			if s.wsLimiter.allow(deviceID) {
+				return true
+			}
+			s.metrics.IncWSMessageRejected()
+			return false
+		},
 	)
 
 	ctx := r.Context()

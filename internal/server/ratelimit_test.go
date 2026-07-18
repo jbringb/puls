@@ -10,7 +10,7 @@ import (
 
 func TestIPRateLimiterBurstThenDeny(t *testing.T) {
 	// Very slow refill so the burst is effectively all we get within the test.
-	l := newIPRateLimiter(0.0001, 3)
+	l := newRateLimiter(0.0001, 3)
 
 	for i := 0; i < 3; i++ {
 		if !l.allow("1.2.3.4") {
@@ -23,7 +23,7 @@ func TestIPRateLimiterBurstThenDeny(t *testing.T) {
 }
 
 func TestIPRateLimiterPerKey(t *testing.T) {
-	l := newIPRateLimiter(0.0001, 1)
+	l := newRateLimiter(0.0001, 1)
 
 	if !l.allow("1.1.1.1") {
 		t.Fatal("first key should be allowed")
@@ -37,7 +37,7 @@ func TestIPRateLimiterPerKey(t *testing.T) {
 }
 
 func TestIPRateLimiterRefills(t *testing.T) {
-	l := newIPRateLimiter(1000, 1) // 1000 tokens/sec refills quickly
+	l := newRateLimiter(1000, 1) // 1000 tokens/sec refills quickly
 	if !l.allow("9.9.9.9") {
 		t.Fatal("first request allowed")
 	}

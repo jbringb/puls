@@ -29,6 +29,7 @@ type Server struct {
 	metrics     *observability.Metrics
 	http        *http.Server
 	broadcaster *Broadcaster
+	wsLimiter   *keyedRateLimiter
 }
 
 func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, logger *slog.Logger) (*Server, error) {
@@ -45,6 +46,11 @@ func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, 
 		logger:      logger,
 		metrics:     metrics,
 		broadcaster: NewBroadcaster(),
+		// Per-device, not per-IP: many devices can share a NAT/proxy IP, and a
+		// misbehaving device should be throttled regardless of source address.
+		// 5 msg/s sustained is far above any legitimate heartbeat cadence; burst
+		// 20 tolerates a heartbeat landing alongside a diag_response.
+		wsLimiter: newRateLimiter(5, 20),
 	}
 
 	mux := http.NewServeMux()
@@ -81,7 +87,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// The two unauthenticated write endpoints are throttled per client IP:
 	// admin-token gates a brute-forceable secret; register runs bcrypt each call.
-	publicLimiter := newIPRateLimiter(1, 5) // ~1 req/s, burst of 5
+	publicLimiter := newRateLimiter(1, 5) // ~1 req/s, burst of 5
 	mux.Handle("POST /api/v1/auth/admin-token", rateLimit(publicLimiter, http.HandlerFunc(s.handleAdminToken)))
 	mux.Handle("POST /api/v1/devices/register", rateLimit(publicLimiter, http.HandlerFunc(s.handleRegister)))
 
@@ -107,7 +113,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// /metrics is unauthenticated (standard for Prometheus scrape targets);
 	// a dedicated rate limiter limits scrape frequency per IP.
-	metricsLimiter := newIPRateLimiter(2, 10)
+	metricsLimiter := newRateLimiter(2, 10)
 	mux.Handle("GET /metrics", rateLimit(metricsLimiter, s.metrics.HTTPHandler()))
 }
 

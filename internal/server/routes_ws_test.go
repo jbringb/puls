@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,6 +64,87 @@ func TestWSToken(t *testing.T) {
 				t.Fatalf("wsToken() = %q, want %q", got, tt.wantToken)
 			}
 		})
+	}
+}
+
+// TestWSMessageRateLimit drives a real WebSocket connection through the full
+// handler stack and confirms a device flooding messages past its per-device
+// bucket (burst 20, see server.go) gets rejected with a rate-limit error
+// envelope, and that the rejection is counted in metrics.
+func TestWSMessageRateLimit(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	device, err := s.store.CreateDevice(ctx, &model.RegisterRequest{
+		Name: "rl-device", OS: model.OSLinux, Arch: "amd64", Secret: "registration-secret-16chars",
+	})
+	if err != nil {
+		t.Fatalf("CreateDevice: %v", err)
+	}
+	token, err := s.jwtMgr.IssueDeviceToken(device.ID, time.Hour)
+	if err != nil {
+		t.Fatalf("IssueDeviceToken: %v", err)
+	}
+
+	httpSrv := httptest.NewServer(s.http.Handler)
+	defer httpSrv.Close()
+	wsURL := "ws" + strings.TrimPrefix(httpSrv.URL, "http") + "/api/v1/ws"
+
+	dialCtx, cancelDial := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelDial()
+	conn, _, err := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": {"Bearer " + token}},
+	})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.CloseNow()
+
+	// Burst is 20; send well past it in a tight loop so the server's
+	// sequential read loop drains its bucket before any tokens refill.
+	const sent = 30
+	for i := 0; i < sent; i++ {
+		msg, err := ws.Encode(ws.TypeHeartbeat, "", ws.HeartbeatData{CPUPercent: 1})
+		if err != nil {
+			t.Fatalf("encode heartbeat: %v", err)
+		}
+		writeCtx, cancelWrite := context.WithTimeout(ctx, 2*time.Second)
+		err = conn.Write(writeCtx, websocket.MessageText, msg)
+		cancelWrite()
+		if err != nil {
+			t.Fatalf("write heartbeat %d: %v", i, err)
+		}
+	}
+
+	// Only rejected messages get a reply (accepted heartbeats aren't acked),
+	// so drain responses until the rate-limit error envelope appears.
+	readCtx, cancelRead := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelRead()
+
+	var gotRejection bool
+	for !gotRejection {
+		_, raw, err := conn.Read(readCtx)
+		if err != nil {
+			t.Fatalf("read (waiting for rate-limit rejection): %v", err)
+		}
+		var env ws.Envelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			continue
+		}
+		if env.Type != ws.TypeError {
+			continue
+		}
+		var data ws.ErrorData
+		_ = json.Unmarshal(env.Data, &data)
+		if data.Message == "rate limit exceeded" {
+			gotRejection = true
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	s.metrics.HTTPHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), "puls_ws_messages_rejected_total") {
+		t.Error("expected puls_ws_messages_rejected_total in /metrics output")
 	}
 }
 
