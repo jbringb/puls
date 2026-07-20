@@ -25,11 +25,12 @@ var schemaPostgresV2 string
 // pgMigrations are applied in version order; each is tracked in puls_schema_version.
 // Never edit a released migration — append a new one instead.
 var pgMigrations = []struct {
-	version int
-	stmts   string
+	version    int
+	stmts      string
+	concurrent bool // true if stmts must run outside a transaction block (e.g. CREATE INDEX CONCURRENTLY)
 }{
 	{version: 1, stmts: schemaPostgresV1},
-	{version: 2, stmts: schemaPostgresV2},
+	{version: 2, stmts: schemaPostgresV2, concurrent: true},
 }
 
 // pulsMigrationLockID is a stable Postgres advisory lock key used to serialise
@@ -92,6 +93,12 @@ func (s *Postgres) migrate(ctx context.Context) error {
 		if m.version <= current {
 			continue
 		}
+		if m.concurrent {
+			if err := applyConcurrentMigration(ctx, conn, m.version, m.stmts); err != nil {
+				return err
+			}
+			continue
+		}
 		tx, err := conn.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("store: begin migration %d: %w", m.version, err)
@@ -109,6 +116,32 @@ func (s *Postgres) migrate(ctx context.Context) error {
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("store: commit migration %d: %w", m.version, err)
 		}
+	}
+	return nil
+}
+
+// applyConcurrentMigration runs stmts outside a transaction block, for
+// migrations whose statements Postgres refuses to run inside one — notably
+// CREATE INDEX CONCURRENTLY, which trades the SHARE lock a plain CREATE INDEX
+// would hold against all writes for the whole build (blocking every writer
+// fleet-wide until it finishes) for a weaker lock that only briefly waits on
+// in-flight transactions at a couple of sync points.
+//
+// The DDL and the version-tracking insert are consequently two separate
+// autocommit statements rather than one atomic transaction: if the process
+// dies between them, the next startup just retries this migration, and
+// IF NOT EXISTS makes that safe — unless the earlier attempt died mid-build,
+// which Postgres leaves behind as an INVALID index that IF NOT EXISTS treats
+// as already-there. Recovering from that needs an operator to DROP INDEX the
+// invalid one and restart.
+func applyConcurrentMigration(ctx context.Context, conn *sql.Conn, version int, stmts string) error {
+	if _, err := conn.ExecContext(ctx, stmts); err != nil {
+		return fmt.Errorf("store: apply migration %d: %w", version, err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO puls_schema_version (version) VALUES ($1)`, version,
+	); err != nil {
+		return fmt.Errorf("store: record version %d: %w", version, err)
 	}
 	return nil
 }

@@ -69,6 +69,28 @@ func TestPostgresMigrationsIdempotent(t *testing.T) {
 	}
 }
 
+// TestPostgresIndexMigrationBuildsValidIndex checks that the v2 migration's
+// CREATE INDEX CONCURRENTLY actually completed successfully against a real
+// server. A regression that wrapped it back in a transaction (the way
+// non-concurrent migrations run) would fail migrate() outright, since
+// Postgres refuses CONCURRENTLY inside a transaction block — but if some
+// other change instead let a concurrent build get interrupted, Postgres
+// leaves the index behind marked INVALID rather than failing loudly, so this
+// also checks indisvalid directly rather than only checking existence.
+func TestPostgresIndexMigrationBuildsValidIndex(t *testing.T) {
+	st := newTestPostgres(t)
+
+	var isValid bool
+	if err := st.db.QueryRow(
+		`SELECT indisvalid FROM pg_index WHERE indexrelid = 'idx_devices_registered_at_id'::regclass`,
+	).Scan(&isValid); err != nil {
+		t.Fatalf("query pg_index: %v", err)
+	}
+	if !isValid {
+		t.Error("idx_devices_registered_at_id exists but is INVALID — its CONCURRENTLY build was interrupted")
+	}
+}
+
 func TestPostgresPing(t *testing.T) {
 	st := newTestPostgres(t)
 	if err := st.Ping(context.Background()); err != nil {
