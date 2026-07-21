@@ -92,6 +92,7 @@ func (m *Metrics) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		cw := &captureWriter{ResponseWriter: w, status: http.StatusOK}
+		method := httpMethodLabel(r.Method)
 
 		defer func() {
 			route := r.Pattern
@@ -99,18 +100,34 @@ func (m *Metrics) Middleware(next http.Handler) http.Handler {
 				route = "unmatched"
 			}
 			m.httpRequestsTotal.With(prometheus.Labels{
-				"method": r.Method,
+				"method": method,
 				"route":  route,
 				"status": strconv.Itoa(cw.status),
 			}).Inc()
 			m.httpRequestDuration.With(prometheus.Labels{
-				"method": r.Method,
+				"method": method,
 				"route":  route,
 			}).Observe(time.Since(start).Seconds())
 		}()
 
 		next.ServeHTTP(cw, r)
 	})
+}
+
+// httpMethodLabel returns method if it's one Puls actually routes (GET,
+// POST), or "other" otherwise. r.Method is attacker-controlled — Go's HTTP
+// parser accepts any RFC 7230 token as a method, and a request with an
+// unmatched method never reaches the ServeMux to be rejected before this
+// middleware records it — so using it as a label verbatim would let a client
+// mint a fresh puls_http_requests_total time series per request just by
+// varying the method string.
+func httpMethodLabel(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodPost:
+		return method
+	default:
+		return "other"
+	}
 }
 
 type captureWriter struct {

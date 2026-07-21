@@ -111,3 +111,47 @@ func TestWSMessagesRejectedCounter(t *testing.T) {
 		t.Errorf("expected puls_ws_messages_rejected_total 3 in:\n%s", body)
 	}
 }
+
+// TestMiddlewareBucketsUnrecognizedMethodsAsOther guards against
+// puls_http_requests_total growing an unbounded number of time series from a
+// client varying the HTTP method on each request. Only GET and POST are ever
+// routed, so anything else — a real-but-unused method like PUT, or an
+// arbitrary token a client can freely choose — must collapse to a single
+// "other" label value rather than being recorded verbatim.
+func TestMiddlewareBucketsUnrecognizedMethodsAsOther(t *testing.T) {
+	m, err := NewMetrics(func() int { return 0 })
+	if err != nil {
+		t.Fatalf("NewMetrics: %v", err)
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := m.Middleware(next)
+
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, "ZZZZZZ"} {
+		req := httptest.NewRequest(method, "/whatever", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+	}
+
+	metricsRec := httptest.NewRecorder()
+	m.HTTPHandler().ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body, _ := io.ReadAll(metricsRec.Body)
+
+	if !strings.Contains(string(body), `method="GET"`) {
+		t.Errorf("expected a method=\"GET\" sample, got:\n%s", body)
+	}
+	if !strings.Contains(string(body), `method="POST"`) {
+		t.Errorf("expected a method=\"POST\" sample, got:\n%s", body)
+	}
+	if !strings.Contains(string(body), `method="other"`) {
+		t.Errorf("expected unrecognized methods bucketed as method=\"other\", got:\n%s", body)
+	}
+	if strings.Contains(string(body), `method="PUT"`) {
+		t.Errorf("PUT should be bucketed as \"other\", not recorded as its own label value:\n%s", body)
+	}
+	if strings.Contains(string(body), `method="ZZZZZZ"`) {
+		t.Errorf("an arbitrary client-chosen method should be bucketed as \"other\", not recorded verbatim:\n%s", body)
+	}
+}
