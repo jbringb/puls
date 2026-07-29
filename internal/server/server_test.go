@@ -107,7 +107,7 @@ func TestRequireAuth(t *testing.T) {
 // is what gets recorded and logged — not the 200 zero-value the response
 // writer had before the panic unwound.
 func TestWrapMiddlewareRecordsRealStatusAfterPanic(t *testing.T) {
-	m, err := observability.NewMetrics(func() int { return 0 })
+	m, err := observability.NewMetrics(func() int { return 0 }, func() int { return 0 })
 	if err != nil {
 		t.Fatalf("NewMetrics: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestWrapMiddlewareRecordsRealStatusAfterPanic(t *testing.T) {
 // normally (recovery already handled the panic), so the line fires — and
 // must show the real 500, not a stale 200.
 func TestWrapMiddlewareLogsRealStatusAfterPanic(t *testing.T) {
-	m, err := observability.NewMetrics(func() int { return 0 })
+	m, err := observability.NewMetrics(func() int { return 0 }, func() int { return 0 })
 	if err != nil {
 		t.Fatalf("NewMetrics: %v", err)
 	}

@@ -29,11 +29,15 @@ Dependencies:
 import asyncio
 import json
 import os
+import socket
+import ssl
+import struct
 import subprocess
 import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -274,6 +278,97 @@ def check_sse(admin_token: str, timeout: int = 12) -> int:
     return events_seen
 
 
+def get_metric_value(name: str) -> float:
+    """Reads a single unlabeled metric's current value off /metrics."""
+    req = urllib.request.Request(f"{BASE_URL}/metrics")
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        body = resp.read().decode()
+    for line in body.splitlines():
+        if line.startswith(f"{name} "):
+            return float(line.split()[-1])
+    _die(f"metric {name} not found in /metrics output")
+
+
+def open_sse_connection(admin_token: str) -> socket.socket:
+    """
+    Opens a raw connection to /api/v1/events and reads only the response's
+    status line, leaving the connection otherwise undrained. The status line
+    can take up to the real keepalive interval to arrive (nothing else is
+    written until then), so the read timeout must comfortably exceed it.
+    """
+    parsed = urllib.parse.urlparse(BASE_URL)
+    use_tls = parsed.scheme == "https"
+    host = parsed.hostname
+    port = parsed.port or (443 if use_tls else 80)
+
+    sock = socket.create_connection((host, port), timeout=20)
+    if use_tls:
+        sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
+
+    request = (
+        f"GET /api/v1/events HTTP/1.1\r\n"
+        f"Host: {host}\r\n"
+        f"Authorization: Bearer {admin_token}\r\n"
+        f"Connection: close\r\n"
+        f"\r\n"
+    )
+    sock.sendall(request.encode())
+
+    buf = b""
+    while b"\r\n" not in buf:
+        chunk = sock.recv(1)
+        if not chunk:
+            _die("sse connection setup: closed before status line arrived")
+        buf += chunk
+    return sock
+
+
+def check_sse_stuck_client_is_reaped(admin_token: str) -> None:
+    """
+    Verifies the leak fix in handleEvents: a subscriber that vanishes must be
+    detected and cleaned up, not held open (leaking its goroutine + Broadcaster
+    subscription) forever. This is real-artifact coverage against the actual
+    compiled binary and its real timers; the precise mechanism (a bounded
+    write deadline catches a truly hung write with no error) is already
+    covered deterministically, with shortened timers, by
+    TestHandleEventsStuckWriteIsCleanedUp in internal/server.
+
+    This check instead targets the other half of the original bug: a write
+    error was being silently discarded, regardless of cause. It aborts the
+    connection with SO_LINGER{onoff=1, linger=0}, which makes the kernel send
+    an RST on close instead of a graceful FIN — simulating a client that
+    dropped off mid-stream rather than one that's merely slow. The server's
+    next write attempt (the periodic keepalive, if no real event arrives
+    first) hits that RST and must see a real error and tear the connection
+    down, observed purely externally via the new puls_sse_subscribers gauge.
+    Bounded by the real keepalive interval, not by how long it takes to fill
+    an OS socket buffer under a merely-slow client.
+    """
+    baseline = get_metric_value("puls_sse_subscribers")
+
+    sock = open_sse_connection(admin_token)
+    deadline = time.monotonic() + 5
+    while True:
+        if get_metric_value("puls_sse_subscribers") >= baseline + 1:
+            break
+        if time.monotonic() > deadline:
+            _die("puls_sse_subscribers did not increase after opening the connection")
+        time.sleep(0.2)
+
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    sock.close()
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if get_metric_value("puls_sse_subscribers") <= baseline:
+            return  # server saw the RST-induced write error and cleaned up
+        time.sleep(0.5)
+    _die(
+        "puls_sse_subscribers never dropped back down — an aborted SSE "
+        "connection was not detected and cleaned up (leak regression)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
@@ -326,7 +421,7 @@ def preflight() -> None:
 # Main
 # ---------------------------------------------------------------------------
 
-TOTAL = 12
+TOTAL = 13
 
 
 def main() -> None:
@@ -481,7 +576,15 @@ def main() -> None:
     print(f"  received {n} event(s)  ok")
 
     # ------------------------------------------------------------------
-    # 10. Request diagnostics
+    # 10. SSE — a stuck (non-reading) subscriber must be reaped, not leaked
+    # ------------------------------------------------------------------
+    print(f"[{step}/{TOTAL}] SSE — aborted subscriber gets cleaned up (up to ~35s)")
+    step += 1
+    check_sse_stuck_client_is_reaped(admin_token)
+    print("  stuck connection was detected and cleaned up  ok")
+
+    # ------------------------------------------------------------------
+    # 11. Request diagnostics
     # ------------------------------------------------------------------
     print(f"[{step}/{TOTAL}] requesting diagnostics")
     step += 1
@@ -516,7 +619,7 @@ def main() -> None:
     print(f"  payload: hostname={payload.get('hostname')}  cpuCores={payload.get('cpuCores')}")
 
     # ------------------------------------------------------------------
-    # 11. Metrics endpoint
+    # 12. Metrics endpoint
     # ------------------------------------------------------------------
     print(f"[{step}/{TOTAL}] metrics endpoint")
     step += 1
@@ -525,7 +628,7 @@ def main() -> None:
         body = resp.read().decode()
     if resp.status != 200:
         _die(f"/metrics returned {resp.status}")
-    for metric in ("puls_http_requests_total", "puls_heartbeats_total", "puls_devices_connected"):
+    for metric in ("puls_http_requests_total", "puls_heartbeats_total", "puls_devices_connected", "puls_sse_subscribers"):
         if metric not in body:
             _die(f"/metrics missing expected metric: {metric}")
     hb_line = next((l for l in body.splitlines() if l.startswith("puls_heartbeats_total")), None)
@@ -534,7 +637,7 @@ def main() -> None:
         print(f"  puls_heartbeats_total={count_str}  ok")
 
     # ------------------------------------------------------------------
-    # 12. Teardown WebSocket session
+    # 13. Teardown WebSocket session
     # ------------------------------------------------------------------
     print(f"[{step}/{TOTAL}] closing device WebSocket")
     step += 1

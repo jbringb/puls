@@ -123,6 +123,8 @@ internal/
 - Key metrics: `puls_http_requests_total{method,route,status}`,
   `puls_http_request_duration_seconds{method,route}`, `puls_heartbeats_total`,
   `puls_devices_connected` (GaugeFunc backed by `hub.Count()`),
+  `puls_sse_subscribers` (GaugeFunc backed by `Broadcaster.Count()` — active
+  `GET /api/v1/events` subscribers),
   `puls_ws_messages_rejected_total` (per-device WS rate limit, see Security)
 
 ### Security

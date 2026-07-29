@@ -44,3 +44,10 @@ func (b *Broadcaster) Publish(e Event) {
 		}
 	}
 }
+
+// Count returns the current number of active subscribers.
+func (b *Broadcaster) Count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.subs)
+}

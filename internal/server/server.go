@@ -33,7 +33,8 @@ type Server struct {
 }
 
 func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, logger *slog.Logger) (*Server, error) {
-	metrics, err := observability.NewMetrics(hub.Count)
+	broadcaster := NewBroadcaster()
+	metrics, err := observability.NewMetrics(hub.Count, broadcaster.Count)
 	if err != nil {
 		return nil, fmt.Errorf("server: init metrics: %w", err)
 	}
@@ -45,7 +46,7 @@ func New(cfg *config.Config, st store.Store, hub *ws.Hub, jwtMgr *auth.Manager, 
 		jwtMgr:      jwtMgr,
 		logger:      logger,
 		metrics:     metrics,
-		broadcaster: NewBroadcaster(),
+		broadcaster: broadcaster,
 		// Per-device, not per-IP: many devices can share a NAT/proxy IP, and a
 		// misbehaving device should be throttled regardless of source address.
 		// 5 msg/s sustained is far above any legitimate heartbeat cadence; burst

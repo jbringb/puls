@@ -20,9 +20,10 @@ type Metrics struct {
 }
 
 // NewMetrics creates a fresh isolated Prometheus registry and registers the
-// standard set of Puls collectors. connectedDevices is called on each scrape
-// to read the live WebSocket connection count from the hub without importing it.
-func NewMetrics(connectedDevices func() int) (*Metrics, error) {
+// standard set of Puls collectors. connectedDevices and sseSubscribers are
+// each called on scrape to read a live count (WebSocket connections, SSE
+// subscribers) without this package importing ws/server.
+func NewMetrics(connectedDevices func() int, sseSubscribers func() int) (*Metrics, error) {
 	reg := prometheus.NewRegistry()
 
 	httpReqTotal := prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -51,8 +52,13 @@ func NewMetrics(connectedDevices func() int) (*Metrics, error) {
 		Help: "Current number of devices with an active WebSocket connection.",
 	}, func() float64 { return float64(connectedDevices()) })
 
+	sseSubscribersGauge := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "puls_sse_subscribers",
+		Help: "Current number of active GET /api/v1/events subscribers.",
+	}, func() float64 { return float64(sseSubscribers()) })
+
 	for _, c := range []prometheus.Collector{
-		httpReqTotal, httpReqDuration, heartbeatsTotal, devicesConnected, wsMessagesRejectedTotal,
+		httpReqTotal, httpReqDuration, heartbeatsTotal, devicesConnected, wsMessagesRejectedTotal, sseSubscribersGauge,
 	} {
 		if err := reg.Register(c); err != nil {
 			return nil, fmt.Errorf("observability: register metric: %w", err)
