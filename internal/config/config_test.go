@@ -58,6 +58,26 @@ func TestLoad(t *testing.T) {
 			env:     map[string]string{"PULS_JWT_SECRET": validJWT, "PULS_ADMIN_SECRET": validAdmin, "PULS_HEARTBEAT_TIMEOUT": "not-a-duration"},
 			wantErr: true,
 		},
+		{
+			name:    "device token expiry zero",
+			env:     map[string]string{"PULS_JWT_SECRET": validJWT, "PULS_ADMIN_SECRET": validAdmin, "PULS_DEVICE_TOKEN_EXPIRY": "0s"},
+			wantErr: true,
+		},
+		{
+			name:    "admin token expiry zero",
+			env:     map[string]string{"PULS_JWT_SECRET": validJWT, "PULS_ADMIN_SECRET": validAdmin, "PULS_ADMIN_TOKEN_EXPIRY": "0s"},
+			wantErr: true,
+		},
+		{
+			name:    "heartbeat timeout zero",
+			env:     map[string]string{"PULS_JWT_SECRET": validJWT, "PULS_ADMIN_SECRET": validAdmin, "PULS_HEARTBEAT_TIMEOUT": "0s"},
+			wantErr: true,
+		},
+		{
+			name:    "diagnostic timeout negative",
+			env:     map[string]string{"PULS_JWT_SECRET": validJWT, "PULS_ADMIN_SECRET": validAdmin, "PULS_DIAGNOSTIC_TIMEOUT": "-1s"},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

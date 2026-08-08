@@ -100,6 +100,25 @@ func (c *Config) validate() error {
 	if c.AdminSecret == c.JWTSecret {
 		return fmt.Errorf("config: PULS_ADMIN_SECRET must not equal PULS_JWT_SECRET")
 	}
+	// time.ParseDuration accepts "0s" and negative values like "-5s" without
+	// error, so a bad env var wouldn't otherwise be caught until it silently
+	// broke something at runtime — e.g. a non-positive DeviceTokenExpiry
+	// issues device JWTs that are already expired, failing every device's
+	// auth from the moment of a bad config, with nothing at startup pointing
+	// at the cause.
+	for _, d := range []struct {
+		name  string
+		value time.Duration
+	}{
+		{"PULS_DEVICE_TOKEN_EXPIRY", c.DeviceTokenExpiry},
+		{"PULS_ADMIN_TOKEN_EXPIRY", c.AdminTokenExpiry},
+		{"PULS_HEARTBEAT_TIMEOUT", c.HeartbeatTimeout},
+		{"PULS_DIAGNOSTIC_TIMEOUT", c.DiagnosticTimeout},
+	} {
+		if d.value <= 0 {
+			return fmt.Errorf("config: %s must be positive, got %s", d.name, d.value)
+		}
+	}
 	return nil
 }
 
