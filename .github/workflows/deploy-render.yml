@@ -10,6 +10,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: render
+    # Job-level so the "Wait for deploy" step's if: can test them — the
+    # secrets context isn't allowed in if: conditions, and referencing it
+    # there makes the whole workflow file invalid.
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
 
     steps:
       - name: Trigger deploy
@@ -22,10 +28,7 @@ jobs:
           echo "status=$response" >> "$GITHUB_OUTPUT"
 
       - name: Wait for deploy to go live
-        if: ${{ secrets.RENDER_API_KEY != '' && secrets.RENDER_SERVICE_ID != '' }}
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        if: env.RENDER_API_KEY != '' && env.RENDER_SERVICE_ID != ''
         run: |
           echo "Polling Render for deploy status..."
           for i in $(seq 1 60); do
