@@ -1,6 +1,6 @@
 # Puls
 
-Device uptime and status monitoring server, written in Go 1.25+. Devices register,
+Device uptime and status monitoring server, written in Go 1.27+. Devices register,
 hold a persistent WebSocket connection, and send periodic heartbeats with basic
 system diagnostics. The server can also query connected devices for detailed,
 on-demand diagnostics and streams events to subscribers over SSE.

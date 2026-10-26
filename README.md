@@ -8,7 +8,7 @@ Device uptime and status monitoring server. Devices register with the server, ma
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.27+
 
 ### Build
 
