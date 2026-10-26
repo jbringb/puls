@@ -23,7 +23,7 @@ Env vars:
     KEEP_RUNNING   set to 1 to leave the local stack running after the test
 
 Dependencies:
-    websockets     pip install websockets
+    websockets     pip install -r smoke_test/requirements.txt
 """
 
 import asyncio
@@ -158,7 +158,7 @@ class DeviceSession(threading.Thread):
         try:
             import websockets
         except ImportError:
-            _die("websockets is not installed — run: pip install websockets")
+            _die("websockets is not installed — run: pip install -r smoke_test/requirements.txt")
 
         self._loop = asyncio.get_running_loop()
         self._stop_event = asyncio.Event()
