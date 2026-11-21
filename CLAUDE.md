@@ -151,4 +151,10 @@ internal/
 
 ## Workflow
 
-- Do **not** run `git push` — the user pushes manually.
+- Do **not** run `git push` — the user pushes manually. Only exception: the
+  scheduled `upgrade-deps` run pushes its own `fix-deps-*` branch (never `main`)
+  and opens a PR.
+- **Dependency upgrades and CVE checks → the `upgrade-deps` skill.** Dependabot
+  version-update PRs are off; a monthly scheduled run uses this skill and opens a
+  PR. `modernc.org/libc` and `modernc.org/memory` are pinned in lockstep with
+  `modernc.org/sqlite` — never bump them to "latest".
